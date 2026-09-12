@@ -184,10 +184,13 @@ def tab_search(user_id: str, project: dict):
 
     if go and query:
         with st.spinner("Searching your codebase..."):
-            hits = rag.retrieve(query, user_id, top_k=5)
+            from codesage import llm as _llm
+            intent = _llm.detect_intent(query)
+            hits = _smart_retrieve(query, user_id, intent, project)
             if not hits:
                 st.warning("No relevant code found. Try re-indexing or rephrasing.")
                 return
+
             answer = llm.answer_question(query, hits, project["style"]["summary"])
 
         st.markdown("#### 💡 Answer")
@@ -306,46 +309,77 @@ def render_sources(hits: list):
                          h["text"], score=h.get("score"))
 
 
-def _smart_retrieve(prompt: str, user_id: str, intent: str) -> list:
-    """Retrieve more context for improvement/fix queries + de-duplicate."""
+def _smart_retrieve(prompt: str, user_id: str, intent: str, project: dict = None) -> list:
+    """
+    Retrieve relevant context. Falls back to ALL indexed items when:
+      - project is small (<=15 items), OR
+      - retrieval returns fewer than 3 hits.
+
+    This guarantees the LLM always sees code from small pasted snippets.
+    """
     from codesage import rag
 
-    if intent in ("improve", "fix"):
-        # Retrieve broadly, then re-rank by diversity of files
+    # ---- Baseline retrieval ----
+    if intent in ("improve", "error", "fix"):
         hits = rag.retrieve(prompt, user_id, top_k=8)
         hits += rag.retrieve(
-            "functions with exception handling error handling docstrings "
-            "type hints refactor improvement cleanup",
+            "functions with exceptions error handling security risks "
+            "hardcoded values weak hashing injection division by zero "
+            "unused imports bare except missing docstrings",
             user_id, top_k=8,
         )
         hits += rag.retrieve(
-            "main entry point class definition long function helper utility",
+            "main entry point class definition long function helper "
+            "utility validate read file command run",
             user_id, top_k=6,
         )
+    else:
+        hits = rag.retrieve(prompt, user_id, top_k=6)
 
-        # De-duplicate by (file, name)
-        seen, unique = set(), []
-        for h in hits:
-            key = (h["file"], h["name"])
+    # ---- De-duplicate ----
+    seen, unique = set(), []
+    for h in hits:
+        key = (h["file"], h["name"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(h)
+
+    # ---- FALLBACK: pull everything if the corpus is small or retrieval was weak ----
+    all_items = rag.list_all(user_id)
+    total_items = len(all_items)
+
+    # If the project has <=15 code chunks OR we got <3 hits → dump everything
+    if total_items > 0 and (total_items <= 15 or len(unique) < 3):
+        # Convert list_all output into retrieval-like dicts
+        for item in all_items:
+            key = (item["file"], item["name"])
             if key in seen:
                 continue
             seen.add(key)
-            unique.append(h)
+            unique.append({
+                "kind": "code",
+                "type": item.get("type", "function"),
+                "name": item.get("name", ""),
+                "file": item.get("file", ""),
+                "line_start": item.get("line_start", 0),
+                "line_end": item.get("line_start", 0) + item.get("text", "").count("\n"),
+                "text": item.get("text", ""),
+                "docstring": "",
+                "score": None,
+            })
 
-        # Prefer diversity — cap at 10, spread across files
-        files_seen = {}
-        diversified = []
-        for h in unique:
-            files_seen.setdefault(h["file"], 0)
-            if files_seen[h["file"]] < 3:  # max 3 per file
-                diversified.append(h)
-                files_seen[h["file"]] += 1
-            if len(diversified) >= 10:
-                break
-        return diversified if diversified else unique[:10]
+    # ---- Diversity: max 3 chunks per file, cap total at 12 ----
+    files_seen, diversified = {}, []
+    for h in unique:
+        files_seen.setdefault(h["file"], 0)
+        if files_seen[h["file"]] < 3:
+            diversified.append(h)
+            files_seen[h["file"]] += 1
+        if len(diversified) >= 12:
+            break
 
-    return rag.retrieve(prompt, user_id, top_k=6)
-
+    return diversified if diversified else unique
 
 def tab_chat(user_id: str, project: dict):
     """Chat with input pinned at the bottom, history scrolls above."""
@@ -397,7 +431,7 @@ def tab_chat(user_id: str, project: dict):
         # Compute answer
         with st.spinner("Thinking..." if not thinking else "Deep analysis in progress..."):
             intent = llm.detect_intent(prompt)
-            hits = _smart_retrieve(prompt, user_id, intent)
+            hits = _smart_retrieve(prompt, user_id, intent, project)
 
             if thinking:
                 answer = llm.deep_analysis(
