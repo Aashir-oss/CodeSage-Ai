@@ -1,0 +1,23 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Secrets — NEVER commit these
+.env
+.streamlit/secrets.toml
+
+# Runtime data
+data/uploads/
+data/chroma_db/
+
+# Editor
+.vscode/
+.idea/
+.DS_Store

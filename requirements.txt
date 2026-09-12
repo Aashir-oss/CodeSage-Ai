@@ -1,0 +1,13 @@
+﻿streamlit
+streamlit-aggrid
+chromadb
+sentence-transformers
+groq
+ruff
+bandit
+python-dotenv
+pandas
+pypdf
+python-docx
+pillow
+pytesseract
