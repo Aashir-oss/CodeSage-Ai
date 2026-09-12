@@ -466,8 +466,8 @@ def tab_chat(user_id: str, project: dict):
 
         st.rerun()
 
-        def app_header(username: str = "guest"):()
-    """Centered animated header shown on every page."""
+    def app_header(username: str = "guest"):
+     """Centered animated header shown on every page."""
     st.markdown(
         f"""
         <div class="cs-header">
