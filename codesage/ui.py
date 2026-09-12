@@ -382,11 +382,14 @@ def _smart_retrieve(prompt: str, user_id: str, intent: str, project: dict = None
     return diversified if diversified else unique
 
 def tab_chat(user_id: str, project: dict):
-    """Chat with input pinned at the bottom, history scrolls above."""
+    """Chat-first UI. Code + history are session-scoped."""
     from codesage import llm
 
     st.markdown("### 💬 Ask CodeSage")
-    st.caption("Chat with your project. Ask to explain, find, fix, or add features.")
+    st.caption(
+        "Ask anything about your code — errors, security risks, "
+        "improvements, explanations, or how to add features."
+    )
 
     c1, c2 = st.columns([1, 2])
     with c1:
@@ -396,14 +399,14 @@ def tab_chat(user_id: str, project: dict):
         )
     with c2:
         st.caption(
-            "💡 *Try:* *what improvements can be done?* · "
-            "*add logging to my main function* · *explain the auth flow*"
+            "💡 *Try:* *what errors or security risks are here?* · "
+            "*how is input validated?* · *add logging to main()*"
         )
 
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # ---- Scrollable history container ----
+    # ---- History ----
     history_container = st.container()
     with history_container:
         if not st.session_state.chat_history:
@@ -421,14 +424,12 @@ def tab_chat(user_id: str, project: dict):
                 if msg["role"] == "assistant" and msg.get("sources"):
                     render_sources(msg["sources"])
 
-    # ---- Input pinned at bottom (Streamlit auto-pins st.chat_input) ----
+    # ---- Input pinned at bottom ----
     prompt = st.chat_input("Ask anything about your code...")
 
     if prompt:
-        # Append user message first so it renders in next rerun
         st.session_state.chat_history.append({"role": "user", "content": prompt})
 
-        # Compute answer
         with st.spinner("Thinking..." if not thinking else "Deep analysis in progress..."):
             intent = llm.detect_intent(prompt)
             hits = _smart_retrieve(prompt, user_id, intent, project)
@@ -450,5 +451,4 @@ def tab_chat(user_id: str, project: dict):
             "sources": hits,
         })
 
-        # Rerun so the new messages render in the history container
         st.rerun()

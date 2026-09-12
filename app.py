@@ -30,9 +30,13 @@ user_id  = st.session_state.get("user_id", "guest")
 username = st.session_state.get("username", "guest")
 
 DEFAULTS = {
-    "project": None, "chat_history": [],
-    "explain_result": None, "issue_explanation": None,
-    "_last_upload": None, "_last_paste": None,
+    "project": None,
+    "chat_history": [],
+    "explain_result": None,
+    "issue_explanation": None,
+    "_last_upload": None,
+    "_last_paste": None,
+    "_session_id": None,
 }
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
@@ -46,10 +50,18 @@ SUPPORTED_EXTS = {
 }
 
 
+def _reset_session_for_new_code():
+    """Clear ALL project-specific state when new code is loaded."""
+    st.session_state.project = None
+    st.session_state.chat_history = []
+    st.session_state.explain_result = None
+    st.session_state.issue_explanation = None
+
+
 # ==============================================================
 # PIPELINE
 # ==============================================================
-def _run_pipeline(root: Path, user_id: str, status):
+def _run_pipeline(root: Path, user_id: str, status, session_id: str):
     all_files = file_manager.find_all_supported_files(root)
     code_files = all_files["code"]
     doc_files  = all_files["docs"]
@@ -94,6 +106,7 @@ def _run_pipeline(root: Path, user_id: str, status):
     summary = file_manager.scan_summary(root)
     st.session_state.project = {
         "root": str(root),
+        "session_id": session_id,
         "file_count": summary["file_count"],
         "doc_count": summary["doc_count"],
         "image_count": summary["image_count"],
@@ -105,18 +118,23 @@ def _run_pipeline(root: Path, user_id: str, status):
         "style": style,
         "indexed_count": indexed,
     }
+    # Fresh chat for the new code
+    st.session_state.chat_history = []
     st.session_state.explain_result = None
     st.session_state.issue_explanation = None
-    st.session_state.chat_history = []
     st.toast(f"Indexed {indexed} items ✓", icon="✅")
 
 
 def run_pipeline_from_files(uploaded_files, user_id: str):
+    _reset_session_for_new_code()
+
     upload_dir = Path("data/uploads") / "current"
     if upload_dir.exists():
         import shutil
         shutil.rmtree(upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
+
+    session_id = "upload::" + "|".join(sorted(f.name for f in uploaded_files))
 
     with st.status("🚀 Analyzing your upload...", expanded=True) as status:
         st.write(f"📥 Saving {len(uploaded_files)} file(s)...")
@@ -131,13 +149,14 @@ def run_pipeline_from_files(uploaded_files, user_id: str):
             except Exception as e:
                 status.update(label=f"❌ Extraction failed: {e}", state="error")
                 return
-            _run_pipeline(root, user_id, status)
+            _run_pipeline(root, user_id, status, session_id)
         else:
-            _run_pipeline(upload_dir, user_id, status)
+            _run_pipeline(upload_dir, user_id, status, session_id)
 
 
 def run_pipeline_from_paste(code_text: str, user_id: str):
-    """Save pasted code as a file, then run the standard pipeline."""
+    _reset_session_for_new_code()
+
     paste_dir = Path("data/uploads") / "current"
     if paste_dir.exists():
         import shutil
@@ -147,9 +166,11 @@ def run_pipeline_from_paste(code_text: str, user_id: str):
     code_file = paste_dir / "pasted_code.py"
     code_file.write_text(code_text, encoding="utf-8")
 
+    session_id = "paste::" + str(hash(code_text))
+
     with st.status("🚀 Analyzing pasted code...", expanded=True) as status:
         st.write("💾 Saved pasted code as pasted_code.py")
-        _run_pipeline(paste_dir, user_id, status)
+        _run_pipeline(paste_dir, user_id, status, session_id)
 
 
 # ==============================================================
@@ -208,15 +229,22 @@ with st.sidebar:
             key="paste_area",
         )
 
-        col_a, col_b = st.columns([1, 1])
-        with col_a:
-            if st.button("🚀 Analyze", use_container_width=True, type="primary"):
-                if pasted and pasted.strip():
-                    st.session_state["_last_paste"] = hash(pasted)
+        # Clear-chat check: if the paste box is emptied, wipe session
+        if not pasted.strip() and st.session_state.get("_last_paste"):
+            st.session_state["_last_paste"] = None
+            _reset_session_for_new_code()
+
+        if st.button("🚀 Analyze", use_container_width=True, type="primary"):
+            if pasted and pasted.strip():
+                new_sig = str(hash(pasted))
+                if st.session_state.get("_last_paste") != new_sig:
+                    st.session_state["_last_paste"] = new_sig
                     st.session_state["_last_upload"] = None
                     run_pipeline_from_paste(pasted, user_id)
                 else:
-                    st.warning("Paste some code first.")
+                    st.info("This exact code is already indexed. Edit it to re-analyze.")
+            else:
+                st.warning("Paste some code first.")
 
     # ---------- Project stats ----------
     project = st.session_state.project
@@ -233,17 +261,16 @@ with st.sidebar:
         st.markdown("##### ⚙️ Actions")
         col_a, col_b = st.columns(2)
         with col_a:
-            if st.button("♻️ Re-index", use_container_width=True):
-                st.session_state["_last_upload"] = None
-                st.session_state["_last_paste"] = None
-                st.session_state.project = None
+            if st.button("🗑️ Clear chat", use_container_width=True):
+                st.session_state.chat_history = []
+                st.session_state.explain_result = None
+                st.session_state.issue_explanation = None
                 st.rerun()
         with col_b:
-            if st.button("🗑️ Clear", use_container_width=True):
-                st.session_state.project = None
-                st.session_state["_last_upload"] = None
-                st.session_state["_last_paste"] = None
-                st.session_state.chat_history = []
+            if st.button("♻️ Reset all", use_container_width=True):
+                for k in list(st.session_state.keys()):
+                    if k not in ("user_id", "username"):
+                        st.session_state.pop(k, None)
                 st.rerun()
 
         ui.download_report(project)
@@ -256,21 +283,11 @@ with st.sidebar:
 
 
 # ==============================================================
-# MAIN
+# MAIN — Only Chat
 # ==============================================================
 project = st.session_state.project
 
 if not project:
     ui.welcome_screen()
 else:
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["💬 Chat", "🔍 Search", "💡 Explain", "🔧 Issues"]
-    )
-    with tab1:
-        ui.tab_chat(user_id, project)
-    with tab2:
-        ui.tab_search(user_id, project)
-    with tab3:
-        ui.tab_explain(user_id, project)
-    with tab4:
-        ui.tab_issues(user_id, project)
+    ui.tab_chat(user_id, project)
