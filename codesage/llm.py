@@ -12,9 +12,22 @@ _client = None
 def _get_client() -> Groq:
     global _client
     if _client is None:
+        # 1. Try local .env
         key = os.getenv("GROQ_API_KEY")
+
+        # 2. Fall back to Streamlit Cloud secrets
         if not key:
-            raise RuntimeError("GROQ_API_KEY missing from .env")
+            try:
+                import streamlit as st
+                key = st.secrets.get("GROQ_API_KEY")
+            except Exception:
+                pass
+
+        if not key:
+            raise RuntimeError(
+                "GROQ_API_KEY missing. Add it to .env (local) "
+                "or Streamlit Cloud secrets (cloud)."
+            )
         _client = Groq(api_key=key)
     return _client
 
