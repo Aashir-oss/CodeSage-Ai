@@ -32,6 +32,22 @@ def hero():
     )
 
 
+def app_header(username: str = "guest"):
+    """Centered animated header shown on every page."""
+    st.markdown(
+        f"""
+        <div class="cs-header">
+            <div class="cs-header-inner">
+                <span class="cs-header-logo">🧠</span>
+                <span class="cs-header-title">CodeSage</span>
+                <span class="cs-header-badge">AI Code Tutor</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # ==============================================================
 # SIDEBAR
 # ==============================================================
@@ -166,6 +182,90 @@ def welcome_screen():
 
 
 # ==============================================================
+# SMART RETRIEVAL
+# ==============================================================
+def _smart_retrieve(prompt: str, user_id: str, intent: str, project: dict = None) -> list:
+    """
+    Retrieve context. For audit / error / security / improvement queries,
+    pull the ENTIRE project (up to a safe cap) so nothing is missed.
+    """
+    from codesage import rag
+
+    # ---- 1. Broad semantic retrieval ----
+    hits = rag.retrieve(prompt, user_id, top_k=10)
+
+    # ---- 2. For audit-style intents, seed with keywords covering every issue type ----
+    if intent in ("error", "improve", "fix"):
+        seeded_queries = [
+            "hardcoded secrets API keys passwords tokens credentials",
+            "SQL injection command injection eval exec pickle yaml",
+            "weak hashing MD5 SHA1 random os.system subprocess shell",
+            "division by zero empty list None crash index error",
+            "bare except mutable default infinite loop unused import",
+            "missing docstring type hints naming convention magic number",
+            "read file open close context manager connection leak",
+        ]
+        for q in seeded_queries:
+            hits += rag.retrieve(q, user_id, top_k=6)
+
+    # ---- 3. De-duplicate ----
+    seen, unique = set(), []
+    for h in hits:
+        key = (h["file"], h["name"], h.get("line_start", 0))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(h)
+
+    # ---- 4. For audit intents, ALWAYS add every item in the project ----
+    if intent in ("error", "improve", "fix"):
+        all_items = rag.list_all(user_id)
+        for item in all_items:
+            key = (item["file"], item["name"], item.get("line_start", 0))
+            if key in seen:
+                continue
+            seen.add(key)
+            text = item.get("text", "")
+            unique.append({
+                "kind": "code",
+                "type": item.get("type", "function"),
+                "name": item.get("name", ""),
+                "file": item.get("file", ""),
+                "line_start": item.get("line_start", 0),
+                "line_end": item.get("line_start", 0) + text.count("\n"),
+                "text": text,
+                "docstring": "",
+                "score": None,
+            })
+    else:
+        all_items = rag.list_all(user_id)
+        if len(all_items) <= 15 or len(unique) < 3:
+            for item in all_items:
+                key = (item["file"], item["name"], item.get("line_start", 0))
+                if key in seen:
+                    continue
+                seen.add(key)
+                text = item.get("text", "")
+                unique.append({
+                    "kind": "code",
+                    "type": item.get("type", "function"),
+                    "name": item.get("name", ""),
+                    "file": item.get("file", ""),
+                    "line_start": item.get("line_start", 0),
+                    "line_end": item.get("line_start", 0) + text.count("\n"),
+                    "text": text,
+                    "docstring": "",
+                    "score": None,
+                })
+
+    # ---- 5. Sort by file + line ----
+    unique.sort(key=lambda h: (h["file"], h.get("line_start", 0)))
+
+    # ---- 6. Cap at 25 ----
+    return unique[:25]
+
+
+# ==============================================================
 # TAB 1 — SEARCH
 # ==============================================================
 def tab_search(user_id: str, project: dict):
@@ -188,13 +288,11 @@ def tab_search(user_id: str, project: dict):
 
     if go and query:
         with st.spinner("Searching your codebase..."):
-            from codesage import llm as _llm
-            intent = _llm.detect_intent(query)
+            intent = llm.detect_intent(query)
             hits = _smart_retrieve(query, user_id, intent, project)
             if not hits:
                 st.warning("No relevant code found. Try re-indexing or rephrasing.")
                 return
-
             answer = llm.answer_question(query, hits, project["style"]["summary"])
 
         st.markdown("#### 💡 Answer")
@@ -298,7 +396,7 @@ def tab_issues(user_id: str, project: dict):
 
 
 # ==============================================================
-# TAB 4 — CHAT (main experience, with thinking mode)
+# TAB 4 — CHAT
 # ==============================================================
 def render_sources(hits: list):
     if not hits:
@@ -312,87 +410,6 @@ def render_sources(hits: list):
                 doc_card(h["name"], h["file"], h.get("page", 1),
                          h["text"], score=h.get("score"))
 
-
-def _smart_retrieve(prompt: str, user_id: str, intent: str, project: dict = None) -> list:
-    """
-    Retrieve context. For audit / error / security / improvement queries,
-    pull the ENTIRE project (up to a safe cap) so nothing is missed.
-    """
-    from codesage import rag
-
-    # ---- 1. Broad semantic retrieval ----
-    hits = rag.retrieve(prompt, user_id, top_k=10)
-
-    # ---- 2. For audit-style intents, seed with keywords covering every issue type ----
-    if intent in ("error", "improve", "fix"):
-        seeded_queries = [
-            "hardcoded secrets API keys passwords tokens credentials",
-            "SQL injection command injection eval exec pickle yaml",
-            "weak hashing MD5 SHA1 random os.system subprocess shell",
-            "division by zero empty list None crash index error",
-            "bare except mutable default infinite loop unused import",
-            "missing docstring type hints naming convention magic number",
-            "read file open close context manager connection leak",
-        ]
-        for q in seeded_queries:
-            hits += rag.retrieve(q, user_id, top_k=6)
-
-    # ---- 3. De-duplicate ----
-    seen, unique = set(), []
-    for h in hits:
-        key = (h["file"], h["name"], h.get("line_start", 0))
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(h)
-
-    # ---- 4. For audit intents, ALWAYS add every item in the project ----
-    if intent in ("error", "improve", "fix"):
-        all_items = rag.list_all(user_id)
-        for item in all_items:
-            key = (item["file"], item["name"], item.get("line_start", 0))
-            if key in seen:
-                continue
-            seen.add(key)
-            text = item.get("text", "")
-            unique.append({
-                "kind": "code",
-                "type": item.get("type", "function"),
-                "name": item.get("name", ""),
-                "file": item.get("file", ""),
-                "line_start": item.get("line_start", 0),
-                "line_end": item.get("line_start", 0) + text.count("\n"),
-                "text": text,
-                "docstring": "",
-                "score": None,
-            })
-    else:
-        # For non-audit queries, still fall back to full dump if retrieval was weak
-        all_items = rag.list_all(user_id)
-        if len(all_items) <= 15 or len(unique) < 3:
-            for item in all_items:
-                key = (item["file"], item["name"], item.get("line_start", 0))
-                if key in seen:
-                    continue
-                seen.add(key)
-                text = item.get("text", "")
-                unique.append({
-                    "kind": "code",
-                    "type": item.get("type", "function"),
-                    "name": item.get("name", ""),
-                    "file": item.get("file", ""),
-                    "line_start": item.get("line_start", 0),
-                    "line_end": item.get("line_start", 0) + text.count("\n"),
-                    "text": text,
-                    "docstring": "",
-                    "score": None,
-                })
-
-    # ---- 5. Sort by line number so the LLM sees the file in order ----
-    unique.sort(key=lambda h: (h["file"], h.get("line_start", 0)))
-
-    # ---- 6. Cap total at 25 to stay under token limits ----
-    return unique[:25]
 
 def tab_chat(user_id: str, project: dict):
     """Chat-first UI. Code + history are session-scoped."""
@@ -419,7 +436,6 @@ def tab_chat(user_id: str, project: dict):
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # ---- History ----
     history_container = st.container()
     with history_container:
         if not st.session_state.chat_history:
@@ -437,7 +453,6 @@ def tab_chat(user_id: str, project: dict):
                 if msg["role"] == "assistant" and msg.get("sources"):
                     render_sources(msg["sources"])
 
-    # ---- Input pinned at bottom ----
     prompt = st.chat_input("Ask anything about your code...")
 
     if prompt:
@@ -465,18 +480,3 @@ def tab_chat(user_id: str, project: dict):
         })
 
         st.rerun()
-
-    def app_header(username: str = "guest"):
-     """Centered animated header shown on every page."""
-    st.markdown(
-        f"""
-        <div class="cs-header">
-            <div class="cs-header-inner">
-                <span class="cs-header-logo">🧠</span>
-                <span class="cs-header-title">CodeSage</span>
-                <span class="cs-header-badge">AI Code Tutor</span>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
