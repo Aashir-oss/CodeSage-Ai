@@ -29,7 +29,7 @@ ui.inject_css()
 user_id  = st.session_state.get("user_id", "guest")
 username = st.session_state.get("username", "guest")
 
-ui.app_header(username)
+#ui.app_header(username)
 DEFAULTS = {
     "project": None,
     "chat_history": [],
