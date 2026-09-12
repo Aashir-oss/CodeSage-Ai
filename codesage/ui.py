@@ -348,6 +348,7 @@ def _smart_retrieve(prompt: str, user_id: str, intent: str) -> list:
 
 
 def tab_chat(user_id: str, project: dict):
+    """Chat with input pinned at the bottom, history scrolls above."""
     from codesage import llm
 
     st.markdown("### 💬 Ask CodeSage")
@@ -368,48 +369,52 @@ def tab_chat(user_id: str, project: dict):
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # Render history
-    for msg in st.session_state.chat_history:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            if msg["role"] == "assistant" and msg.get("sources"):
-                render_sources(msg["sources"])
-
-    # New input
-    prompt = st.chat_input("Ask anything about your code...")
-    if prompt:
-        st.session_state.chat_history.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        with st.chat_message("assistant"):
-            spinner_text = (
-                "Deep analysis in progress..." if thinking else "Thinking..."
+    # ---- Scrollable history container ----
+    history_container = st.container()
+    with history_container:
+        if not st.session_state.chat_history:
+            st.markdown(
+                '<div style="text-align:center;color:#64748b;padding:40px 20px;">'
+                '<div style="font-size:2rem;">💬</div>'
+                '<p>Ask anything about your uploaded code to get started.</p>'
+                '</div>',
+                unsafe_allow_html=True,
             )
-            with st.spinner(spinner_text):
-                intent = llm.detect_intent(prompt)
-                hits = _smart_retrieve(prompt, user_id, intent)
 
-                if thinking:
-                    answer = llm.deep_analysis(
-                        prompt, hits,
-                        project["style"]["summary"],
-                        project["items"],
-                    )
-                else:
-                    answer = llm.answer_question(
-                        prompt, hits,
-                        project["style"]["summary"],
-                        thinking=False,
-                        history=st.session_state.chat_history[:-1],
-                    )
+        for msg in st.session_state.chat_history:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+                if msg["role"] == "assistant" and msg.get("sources"):
+                    render_sources(msg["sources"])
 
-            st.markdown(answer)
-            if hits:
-                render_sources(hits)
+    # ---- Input pinned at bottom (Streamlit auto-pins st.chat_input) ----
+    prompt = st.chat_input("Ask anything about your code...")
+
+    if prompt:
+        # Append user message first so it renders in next rerun
+        st.session_state.chat_history.append({"role": "user", "content": prompt})
+
+        # Compute answer
+        with st.spinner("Thinking..." if not thinking else "Deep analysis in progress..."):
+            intent = llm.detect_intent(prompt)
+            hits = _smart_retrieve(prompt, user_id, intent)
+
+            if thinking:
+                answer = llm.deep_analysis(
+                    prompt, hits, project["style"]["summary"], project["items"],
+                )
+            else:
+                answer = llm.answer_question(
+                    prompt, hits, project["style"]["summary"],
+                    thinking=False,
+                    history=st.session_state.chat_history[:-1],
+                )
 
         st.session_state.chat_history.append({
             "role": "assistant",
             "content": answer,
             "sources": hits,
         })
+
+        # Rerun so the new messages render in the history container
+        st.rerun()
