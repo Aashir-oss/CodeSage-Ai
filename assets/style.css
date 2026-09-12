@@ -1,0 +1,129 @@
+/* ---------- Animated gradient background ---------- */
+.stApp {
+    background-color: #0a0a0f;
+    background-image:
+        radial-gradient(at 20% 20%, hsla(270, 85%, 60%, 0.15) 0px, transparent 50%),
+        radial-gradient(at 80% 30%, hsla(200, 85%, 60%, 0.12) 0px, transparent 50%),
+        radial-gradient(at 30% 80%, hsla(320, 85%, 60%, 0.10) 0px, transparent 50%),
+        radial-gradient(at 70% 70%, hsla(260, 85%, 55%, 0.08) 0px, transparent 50%);
+    background-size: 200% 200%;
+    animation: gradientShift 20s ease infinite;
+}
+@keyframes gradientShift {
+    0%   { background-position: 0% 0%; }
+    50%  { background-position: 100% 100%; }
+    100% { background-position: 0% 0%; }
+}
+
+/* ---------- Sidebar ---------- */
+section[data-testid="stSidebar"] {
+    background-color: rgba(22, 22, 29, 0.85);
+    backdrop-filter: blur(12px);
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ---------- Cards ---------- */
+.cs-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 14px;
+    padding: 16px 18px;
+    margin-bottom: 12px;
+    backdrop-filter: blur(6px);
+    transition: all 0.2s ease;
+}
+.cs-card:hover {
+    border-color: rgba(139, 92, 246, 0.45);
+    background: rgba(139, 92, 246, 0.05);
+    transform: translateY(-1px);
+}
+.cs-card-header {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #a78bfa;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.cs-card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #e2e8f0;
+    margin-bottom: 4px;
+}
+.cs-card-meta {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    font-family: ui-monospace, monospace;
+}
+
+/* ---------- Metrics ---------- */
+.cs-metric {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    margin-bottom: 6px;
+    font-size: 0.85rem;
+}
+.cs-metric span:first-child { color: #94a3b8; }
+.cs-metric span:last-child  { color: #e2e8f0; font-weight: 600; }
+
+/* ---------- Badges ---------- */
+.cs-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+.cs-badge-high   { background: rgba(239,68,68,0.15);  color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+.cs-badge-medium { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+.cs-badge-low    { background: rgba(34,197,94,0.15);  color: #4ade80; border: 1px solid rgba(34,197,94,0.3); }
+.cs-badge-style  { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
+
+/* ---------- Tabs ---------- */
+button[data-baseweb="tab"] { font-weight: 600; color: #94a3b8; }
+button[data-baseweb="tab"][aria-selected="true"] { color: #a78bfa !important; }
+
+/* ---------- Buttons ---------- */
+.stButton > button {
+    border-radius: 10px;
+    font-weight: 600;
+    transition: all 0.15s ease;
+}
+.stButton > button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(139, 92, 246, 0.25);
+}
+
+/* ---------- Chat ---------- */
+div[data-testid="stChatMessage"] {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    padding: 12px 16px;
+    margin-bottom: 10px;
+}
+
+/* ---------- Hero ---------- */
+.cs-hero { text-align: center; padding: 40px 20px 20px 20px; }
+.cs-hero h1 {
+    font-size: 2.6rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #a78bfa 0%, #60a5fa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px;
+}
+.cs-hero p { color: #94a3b8; font-size: 1rem; max-width: 600px; margin: 0 auto; }
+
+/* ---------- Misc ---------- */
+.stCodeBlock { border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.06); }
+footer { visibility: hidden; }
+#MainMenu { visibility: hidden; }
