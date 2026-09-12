@@ -9,6 +9,7 @@ baseRadius = "0.75rem"
 [server]
 maxUploadSize = 500
 headless = true
+fileWatcherType = "none"
 
 [browser]
 gatherUsageStats = false
@@ -17,3 +18,4 @@ gatherUsageStats = false
 showErrorDetails = true
 toolbarMode = "minimal"
 showSidebarNavigation = false
+
