@@ -91,7 +91,10 @@ def download_report(project: dict):
 def code_card(name, file, line_start, line_end, source,
               item_type="function", score=None):
     icon = "🔧" if item_type == "function" else "🏛️"
-    score_html = f'<span class="cs-card-meta">score {score:.3f}</span>' if score is not None else ""
+    score_html = (
+        f'<span class="cs-card-meta">score {score:.3f}</span>'
+        if score is not None else ""
+    )
     st.markdown(
         f"""
         <div class="cs-card">
@@ -107,7 +110,10 @@ def code_card(name, file, line_start, line_end, source,
 
 
 def doc_card(name, file, page, text, score=None):
-    score_html = f'<span class="cs-card-meta">score {score:.3f}</span>' if score is not None else ""
+    score_html = (
+        f'<span class="cs-card-meta">score {score:.3f}</span>'
+        if score is not None else ""
+    )
     preview = text[:400] + ("..." if len(text) > 400 else "")
     st.markdown(
         f"""
@@ -287,7 +293,7 @@ def tab_issues(user_id: str, project: dict):
 # ==============================================================
 # TAB 4 — CHAT (main experience, with thinking mode)
 # ==============================================================
-def render_sources(hits: list[dict]):
+def render_sources(hits: list):
     if not hits:
         return
     with st.expander(f"📎 Sources ({len(hits)} retrieved)", expanded=False):
@@ -300,8 +306,49 @@ def render_sources(hits: list[dict]):
                          h["text"], score=h.get("score"))
 
 
+def _smart_retrieve(prompt: str, user_id: str, intent: str) -> list:
+    """Retrieve more context for improvement/fix queries + de-duplicate."""
+    from codesage import rag
+
+    if intent in ("improve", "fix"):
+        # Retrieve broadly, then re-rank by diversity of files
+        hits = rag.retrieve(prompt, user_id, top_k=8)
+        hits += rag.retrieve(
+            "functions with exception handling error handling docstrings "
+            "type hints refactor improvement cleanup",
+            user_id, top_k=8,
+        )
+        hits += rag.retrieve(
+            "main entry point class definition long function helper utility",
+            user_id, top_k=6,
+        )
+
+        # De-duplicate by (file, name)
+        seen, unique = set(), []
+        for h in hits:
+            key = (h["file"], h["name"])
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(h)
+
+        # Prefer diversity — cap at 10, spread across files
+        files_seen = {}
+        diversified = []
+        for h in unique:
+            files_seen.setdefault(h["file"], 0)
+            if files_seen[h["file"]] < 3:  # max 3 per file
+                diversified.append(h)
+                files_seen[h["file"]] += 1
+            if len(diversified) >= 10:
+                break
+        return diversified if diversified else unique[:10]
+
+    return rag.retrieve(prompt, user_id, top_k=6)
+
+
 def tab_chat(user_id: str, project: dict):
-    from codesage import rag, llm
+    from codesage import llm
 
     st.markdown("### 💬 Ask CodeSage")
     st.caption("Chat with your project. Ask to explain, find, fix, or add features.")
@@ -313,18 +360,22 @@ def tab_chat(user_id: str, project: dict):
             help="Full architectural analysis. Slower but thorough.",
         )
     with c2:
-        st.caption("💡 *Try:* *how is input validated?* · "
-                   "*add logging to my main function* · *explain the auth flow*")
+        st.caption(
+            "💡 *Try:* *what improvements can be done?* · "
+            "*add logging to my main function* · *explain the auth flow*"
+        )
 
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
+    # Render history
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if msg["role"] == "assistant" and msg.get("sources"):
                 render_sources(msg["sources"])
 
+    # New input
     prompt = st.chat_input("Ask anything about your code...")
     if prompt:
         st.session_state.chat_history.append({"role": "user", "content": prompt})
@@ -332,21 +383,33 @@ def tab_chat(user_id: str, project: dict):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..." if not thinking else "Deep analysis in progress..."):
-                hits = rag.retrieve(prompt, user_id, top_k=6)
+            spinner_text = (
+                "Deep analysis in progress..." if thinking else "Thinking..."
+            )
+            with st.spinner(spinner_text):
+                intent = llm.detect_intent(prompt)
+                hits = _smart_retrieve(prompt, user_id, intent)
+
                 if thinking:
                     answer = llm.deep_analysis(
-                        prompt, hits, project["style"]["summary"], project["items"])
+                        prompt, hits,
+                        project["style"]["summary"],
+                        project["items"],
+                    )
                 else:
                     answer = llm.answer_question(
-                        prompt, hits, project["style"]["summary"],
+                        prompt, hits,
+                        project["style"]["summary"],
                         thinking=False,
-                        history=st.session_state.chat_history[:-1])
+                        history=st.session_state.chat_history[:-1],
+                    )
+
             st.markdown(answer)
             if hits:
                 render_sources(hits)
 
         st.session_state.chat_history.append({
-            "role": "assistant", "content": answer,
+            "role": "assistant",
+            "content": answer,
             "sources": hits,
         })
