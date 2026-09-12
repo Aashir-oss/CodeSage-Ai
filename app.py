@@ -44,45 +44,28 @@ for k, v in DEFAULTS.items():
 
 
 # ==============================================================
+# SUPPORTED FORMATS
+# ==============================================================
+SUPPORTED_EXTS = {
+    ".zip",
+    ".py",
+    ".pdf", ".docx", ".txt", ".md", ".rst",
+    ".png", ".jpg", ".jpeg", ".bmp", ".gif",
+}
+CODE_EXTS  = {".py"}
+DOC_EXTS   = {".pdf", ".docx", ".txt", ".md", ".rst"}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
+
+
+# ==============================================================
 # PIPELINE
 # ==============================================================
-def run_pipeline_from_zip(zip_file, user_id: str):
-    """Upload a ZIP → extract → parse → embed → analyze → learn style."""
-    upload_dir = Path("data/uploads")
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    zip_path = upload_dir / zip_file.name
-    zip_path.write_bytes(zip_file.getbuffer())
-
-    with st.status("🚀 Analyzing your project...", expanded=True) as status:
-        st.write("📦 Extracting ZIP...")
-        try:
-            root = file_manager.extract_zip(str(zip_path), str(upload_dir / "current"))
-        except Exception as e:
-            status.update(label=f"❌ Extraction failed: {e}", state="error")
-            return
-
-        _finish_pipeline(root, user_id, status)
-
-
-def run_pipeline_from_files(uploaded_files, user_id: str):
-    """Upload individual files → save → parse → embed → analyze → learn style."""
-    upload_dir = Path("data/uploads") / "current"
-    if upload_dir.exists():
-        import shutil
-        shutil.rmtree(upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-
-    with st.status("🚀 Analyzing your files...", expanded=True) as status:
-        st.write(f"📥 Saving {len(uploaded_files)} file(s)...")
-        for f in uploaded_files:
-            file_manager.save_uploaded_file(f, str(upload_dir))
-        _finish_pipeline(upload_dir, user_id, status)
-
-
-def _finish_pipeline(root: Path, user_id: str, status):
-    """Shared logic after files are on disk."""
+def _run_pipeline(root: Path, user_id: str, status):
+    """Shared pipeline logic: parse → embed → analyze → learn style."""
     all_files = file_manager.find_all_supported_files(root)
-    code_files, doc_files, img_files = all_files["code"], all_files["docs"], all_files["images"]
+    code_files = all_files["code"]
+    doc_files  = all_files["docs"]
+    img_files  = all_files["images"]
 
     if not code_files and not doc_files and not img_files:
         status.update(label="❌ No supported files found", state="error")
@@ -90,19 +73,16 @@ def _finish_pipeline(root: Path, user_id: str, status):
 
     st.write(f"   ✓ {len(code_files)} code · {len(doc_files)} docs · {len(img_files)} images")
 
-    # Parse code
     st.write("🧬 Parsing Python files...")
     code_items = parser.parse_project(code_files, root)
     st.write(f"   ✓ {len(code_items)} functions/classes")
 
-    # Load docs
     st.write("📚 Loading documents...")
     doc_items = doc_loader.load_all_documents(doc_files, img_files)
     st.write(f"   ✓ {len(doc_items)} document chunks")
 
     items = code_items + doc_items
 
-    # Embed
     st.write("🧠 Generating embeddings...")
     progress = st.progress(0, text="Loading model (first run may take a minute)...")
     try:
@@ -113,12 +93,10 @@ def _finish_pipeline(root: Path, user_id: str, status):
     progress.progress(100, text="Indexed ✓")
     st.write(f"   ✓ Indexed **{indexed}** items")
 
-    # Analyze
     st.write("🔧 Running Ruff + Bandit...")
     issues = analyzer.analyze_project(root) if code_files else []
     st.write(f"   ✓ {len(issues)} issues")
 
-    # Style
     st.write("📚 Learning project style...")
     style = style_learner.learn_style(root, code_files, code_items)
     st.write(f"   ✓ {style['summary']}")
@@ -145,6 +123,33 @@ def _finish_pipeline(root: Path, user_id: str, status):
     st.toast(f"Indexed {indexed} items ✓", icon="✅")
 
 
+def run_pipeline(uploaded_files, user_id: str):
+    """Universal pipeline — accepts a list of uploaded files (ZIP or individual)."""
+    upload_dir = Path("data/uploads") / "current"
+    if upload_dir.exists():
+        import shutil
+        shutil.rmtree(upload_dir)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    with st.status("🚀 Analyzing your upload...", expanded=True) as status:
+        st.write(f"📥 Saving {len(uploaded_files)} file(s)...")
+        for f in uploaded_files:
+            file_manager.save_uploaded_file(f, str(upload_dir))
+
+        # If exactly one file and it's a ZIP → extract
+        if len(uploaded_files) == 1 and uploaded_files[0].name.lower().endswith(".zip"):
+            zip_path = upload_dir / uploaded_files[0].name
+            st.write("📦 Extracting ZIP...")
+            try:
+                root = file_manager.extract_zip(str(zip_path), str(upload_dir / "extracted"))
+            except Exception as e:
+                status.update(label=f"❌ Extraction failed: {e}", state="error")
+                return
+            _run_pipeline(root, user_id, status)
+        else:
+            _run_pipeline(upload_dir, user_id, status)
+
+
 # ==============================================================
 # SIDEBAR
 # ==============================================================
@@ -152,32 +157,34 @@ with st.sidebar:
     st.markdown("## 🧠 CodeSage")
     st.caption("AI-powered code tutor")
 
-    upload_mode = st.radio(
-        "Upload mode",
-        ["ZIP project", "Individual files"],
-        horizontal=True,
-        label_visibility="collapsed",
+    uploaded_files = st.file_uploader(
+        "📁 Upload your project or files",
+        type=["zip", "py", "pdf", "docx", "txt", "md",
+              "png", "jpg", "jpeg", "bmp", "gif"],
+        accept_multiple_files=True,
+        key="uploader",
+        help="ZIP the whole project, or upload individual files. "
+             "Supported: .zip, .py, .pdf, .docx, .txt, .md, .png, .jpg",
     )
 
-    if upload_mode == "ZIP project":
-        uploaded_zip = st.file_uploader(
-            "📁 Upload Python project (.zip)",
-            type=["zip"], key="uploader_zip",
-        )
-        if uploaded_zip and st.session_state.get("_last_upload") != uploaded_zip.name:
-            st.session_state["_last_upload"] = uploaded_zip.name
-            run_pipeline_from_zip(uploaded_zip, user_id)
-    else:
-        uploaded_files = st.file_uploader(
-            "📁 Upload files",
-            type=["py", "pdf", "docx", "txt", "md", "png", "jpg", "jpeg"],
-            accept_multiple_files=True, key="uploader_files",
-        )
-        if uploaded_files:
+    # ---- Validate uploads ----
+    if uploaded_files:
+        bad = [f.name for f in uploaded_files
+               if Path(f.name).suffix.lower() not in SUPPORTED_EXTS]
+
+        if bad:
+            st.error(
+                "⚠️ **Unsupported file format(s):**\n\n"
+                + "\n".join(f"- `{n}`" for n in bad)
+                + "\n\n**Please upload only these formats:**\n\n"
+                "`.zip` · `.py` · `.pdf` · `.docx` · `.txt` · `.md` · "
+                "`.png` · `.jpg` · `.jpeg`"
+            )
+        else:
             signature = "|".join(sorted(f.name for f in uploaded_files))
             if st.session_state.get("_last_upload") != signature:
                 st.session_state["_last_upload"] = signature
-                run_pipeline_from_files(uploaded_files, user_id)
+                run_pipeline(uploaded_files, user_id)
 
     project = st.session_state.project
 
