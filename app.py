@@ -17,9 +17,6 @@ from codesage import (
     ui,
 )
 
-# ==============================================================
-# SETUP
-# ==============================================================
 load_dotenv()
 
 st.set_page_config(
@@ -29,39 +26,30 @@ st.set_page_config(
 
 ui.inject_css()
 
-# ---- Auth placeholder (teammate plugs in later) ----
 user_id  = st.session_state.get("user_id", "guest")
 username = st.session_state.get("username", "guest")
 
-# ---- Session defaults ----
 DEFAULTS = {
     "project": None, "chat_history": [],
     "explain_result": None, "issue_explanation": None,
-    "_last_upload": None,
+    "_last_upload": None, "_last_paste": None,
 }
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
 
 
-# ==============================================================
-# SUPPORTED FORMATS
-# ==============================================================
 SUPPORTED_EXTS = {
     ".zip",
     ".py",
     ".pdf", ".docx", ".txt", ".md", ".rst",
     ".png", ".jpg", ".jpeg", ".bmp", ".gif",
 }
-CODE_EXTS  = {".py"}
-DOC_EXTS   = {".pdf", ".docx", ".txt", ".md", ".rst"}
-IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
 
 
 # ==============================================================
 # PIPELINE
 # ==============================================================
 def _run_pipeline(root: Path, user_id: str, status):
-    """Shared pipeline logic: parse → embed → analyze → learn style."""
     all_files = file_manager.find_all_supported_files(root)
     code_files = all_files["code"]
     doc_files  = all_files["docs"]
@@ -123,8 +111,7 @@ def _run_pipeline(root: Path, user_id: str, status):
     st.toast(f"Indexed {indexed} items ✓", icon="✅")
 
 
-def run_pipeline(uploaded_files, user_id: str):
-    """Universal pipeline — accepts a list of uploaded files (ZIP or individual)."""
+def run_pipeline_from_files(uploaded_files, user_id: str):
     upload_dir = Path("data/uploads") / "current"
     if upload_dir.exists():
         import shutil
@@ -136,7 +123,6 @@ def run_pipeline(uploaded_files, user_id: str):
         for f in uploaded_files:
             file_manager.save_uploaded_file(f, str(upload_dir))
 
-        # If exactly one file and it's a ZIP → extract
         if len(uploaded_files) == 1 and uploaded_files[0].name.lower().endswith(".zip"):
             zip_path = upload_dir / uploaded_files[0].name
             st.write("📦 Extracting ZIP...")
@@ -150,6 +136,22 @@ def run_pipeline(uploaded_files, user_id: str):
             _run_pipeline(upload_dir, user_id, status)
 
 
+def run_pipeline_from_paste(code_text: str, user_id: str):
+    """Save pasted code as a file, then run the standard pipeline."""
+    paste_dir = Path("data/uploads") / "current"
+    if paste_dir.exists():
+        import shutil
+        shutil.rmtree(paste_dir)
+    paste_dir.mkdir(parents=True, exist_ok=True)
+
+    code_file = paste_dir / "pasted_code.py"
+    code_file.write_text(code_text, encoding="utf-8")
+
+    with st.status("🚀 Analyzing pasted code...", expanded=True) as status:
+        st.write("💾 Saved pasted code as pasted_code.py")
+        _run_pipeline(paste_dir, user_id, status)
+
+
 # ==============================================================
 # SIDEBAR
 # ==============================================================
@@ -157,35 +159,66 @@ with st.sidebar:
     st.markdown("## 🧠 CodeSage")
     st.caption("AI-powered code tutor")
 
-    uploaded_files = st.file_uploader(
-        "📁 Upload your project or files",
-        type=["zip", "py", "pdf", "docx", "txt", "md",
-              "png", "jpg", "jpeg", "bmp", "gif"],
-        accept_multiple_files=True,
-        key="uploader",
-        help="ZIP the whole project, or upload individual files. "
-             "Supported: .zip, .py, .pdf, .docx, .txt, .md, .png, .jpg",
+    input_mode = st.radio(
+        "How do you want to give your code?",
+        ["📁 Upload files", "✍️ Paste code"],
+        horizontal=True,
+        label_visibility="collapsed",
     )
 
-    # ---- Validate uploads ----
-    if uploaded_files:
-        bad = [f.name for f in uploaded_files
-               if Path(f.name).suffix.lower() not in SUPPORTED_EXTS]
+    # ---------- MODE 1: Upload ----------
+    if input_mode == "📁 Upload files":
+        uploaded_files = st.file_uploader(
+            "📁 Upload project or files",
+            type=["zip", "py", "pdf", "docx", "txt", "md",
+                  "png", "jpg", "jpeg", "bmp", "gif"],
+            accept_multiple_files=True,
+            key="uploader",
+            help="ZIP the whole project, or upload individual files.",
+        )
 
-        if bad:
-            st.error(
-                "⚠️ **Unsupported file format(s):**\n\n"
-                + "\n".join(f"- `{n}`" for n in bad)
-                + "\n\n**Please upload only these formats:**\n\n"
-                "`.zip` · `.py` · `.pdf` · `.docx` · `.txt` · `.md` · "
-                "`.png` · `.jpg` · `.jpeg`"
-            )
-        else:
-            signature = "|".join(sorted(f.name for f in uploaded_files))
-            if st.session_state.get("_last_upload") != signature:
-                st.session_state["_last_upload"] = signature
-                run_pipeline(uploaded_files, user_id)
+        if uploaded_files:
+            bad = [f.name for f in uploaded_files
+                   if Path(f.name).suffix.lower() not in SUPPORTED_EXTS]
+            if bad:
+                st.error(
+                    "⚠️ **Unsupported file format(s):**\n\n"
+                    + "\n".join(f"- `{n}`" for n in bad)
+                    + "\n\n**Allowed formats:**\n\n"
+                    "`.zip` · `.py` · `.pdf` · `.docx` · `.txt` · `.md` · "
+                    "`.png` · `.jpg` · `.jpeg`"
+                )
+            else:
+                signature = "|".join(sorted(f.name for f in uploaded_files))
+                if st.session_state.get("_last_upload") != signature:
+                    st.session_state["_last_upload"] = signature
+                    st.session_state["_last_paste"] = None
+                    run_pipeline_from_files(uploaded_files, user_id)
 
+    # ---------- MODE 2: Paste code ----------
+    else:
+        pasted = st.text_area(
+            "✍️ Paste your Python code",
+            height=280,
+            placeholder=(
+                "# Paste your Python code here\n"
+                "def hello():\n"
+                "    print('Hi')\n"
+            ),
+            key="paste_area",
+        )
+
+        col_a, col_b = st.columns([1, 1])
+        with col_a:
+            if st.button("🚀 Analyze", use_container_width=True, type="primary"):
+                if pasted and pasted.strip():
+                    st.session_state["_last_paste"] = hash(pasted)
+                    st.session_state["_last_upload"] = None
+                    run_pipeline_from_paste(pasted, user_id)
+                else:
+                    st.warning("Paste some code first.")
+
+    # ---------- Project stats ----------
     project = st.session_state.project
 
     if project:
@@ -202,12 +235,14 @@ with st.sidebar:
         with col_a:
             if st.button("♻️ Re-index", use_container_width=True):
                 st.session_state["_last_upload"] = None
+                st.session_state["_last_paste"] = None
                 st.session_state.project = None
                 st.rerun()
         with col_b:
             if st.button("🗑️ Clear", use_container_width=True):
                 st.session_state.project = None
                 st.session_state["_last_upload"] = None
+                st.session_state["_last_paste"] = None
                 st.session_state.chat_history = []
                 st.rerun()
 

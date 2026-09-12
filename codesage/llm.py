@@ -43,50 +43,77 @@ def _chat(system: str, user: str, temperature: float = 0.2,
 
 
 # ================================================================
-# SYSTEM PROMPTS  (built as concatenated strings to avoid quoting issues)
+# SYSTEM PROMPTS
 # ================================================================
 BASE_SYSTEM = (
     "You are CodeSage, an expert Python code tutor embedded inside a "
     "code-review app.\n\n"
-    "YOUR ONLY JOB is to help the user understand, review, improve, debug, "
-    "or extend the Python project they uploaded. You are grounded in THEIR "
-    "code - never give generic advice.\n\n"
-    "DOMAIN RESTRICTION (very important):\n"
-    "If the user's question is NOT about their uploaded code, Python, "
-    "programming, software design, debugging, or code improvement, reply "
-    "EXACTLY with this sentence and nothing else: "
+    "Your job: help the user understand, review, improve, debug, audit, "
+    "or extend the Python project or code snippet they provided. You are "
+    "grounded in THEIR code - never give generic advice.\n\n"
+    "YOU ARE ALLOWED AND EXPECTED TO ANSWER QUESTIONS ABOUT:\n"
+    "- Explaining any function, class, or line of their code\n"
+    "- Finding ERRORS: syntax errors, logical errors, runtime crashes, "
+    "off-by-one bugs, missing return values, None handling, infinite loops\n"
+    "- Finding SECURITY RISKS: hardcoded secrets, injection, weak hashing, "
+    "unsafe deserialization, path traversal, command injection\n"
+    "- Finding STYLE / NAMING issues: PEP 8 violations, unclear names, "
+    "missing docstrings, missing type hints, dead code\n"
+    "- Suggesting IMPROVEMENTS and refactors\n"
+    "- Adding FEATURES and showing integration code\n"
+    "- Comparing patterns, conventions, dependencies\n"
+    "- Any other question about their code or Python itself\n\n"
+    "DOMAIN RESTRICTION (very narrow):\n"
+    "ONLY refuse questions that are completely unrelated to programming or "
+    "their code - e.g. news, sports, weather, personal advice, general "
+    "trivia, essays, translations. For those, reply EXACTLY:\n"
     "\"I'm restricted to helping with your uploaded project. Please ask me "
-    "something about your code - explaining a function, finding "
-    "improvements, fixing issues, or adding new features.\"\n"
-    "Do NOT answer general knowledge, news, trivia, math, personal "
-    "questions, or anything unrelated to their code.\n\n"
+    "something about your code - explaining a function, finding errors or "
+    "security risks, suggesting improvements, or adding new features.\"\n"
+    "Do not over-apply this restriction. If in doubt, answer the question.\n\n"
     "STYLE RULES:\n"
     "- Plain English. Be concise but specific.\n"
     "- ALWAYS cite file names and line numbers when referring to code.\n"
-    "- When suggesting code, show a short snippet in a fenced code block.\n"
+    "- When suggesting code, use a fenced code block.\n"
     "- Match the project's existing style for any code you write.\n"
     "- Never invent file names or functions not present in the context.\n\n"
     "Project style: {style}"
 )
 
+ERROR_AUDIT_ADDENDUM = (
+    "\n\nERROR / SECURITY AUDIT MODE.\n"
+    "The user is asking for errors, bugs, or security risks. Produce a "
+    "thorough audit grouped by severity. Format each finding as:\n\n"
+    "### <Short title>\n"
+    "- Severity: critical | high | medium | low\n"
+    "- Type: syntax | logical | security | style | naming\n"
+    "- Where: <file> - line <number>\n"
+    "- What: <one sentence explaining the issue>\n"
+    "- Why it matters: <one sentence>\n"
+    "- Fix:\n"
+    "    <suggested corrected code>\n\n"
+    "Cover EVERYTHING you can see: crashes, unhandled None, division by "
+    "zero, bare excepts, hardcoded secrets, injection risks, weak hashing, "
+    "unused imports, missing docstrings, magic numbers, overly long "
+    "functions, wrong naming conventions, dead code.\n"
+    "If you find more than 8 issues, list the top 8 by severity and then "
+    "summarize the rest in one line."
+)
+
 IMPROVEMENT_ADDENDUM = (
     "\n\nIMPROVEMENT / SUGGESTION MODE.\n"
-    "The user is asking for enhancements, tips, or improvements. "
-    "Provide 3 to 6 concrete improvements. For each, use this exact format:\n\n"
+    "Provide 3 to 6 concrete improvements. For each, use:\n\n"
     "### Short title\n"
     "- Where: <file> - line <number>\n"
     "- Why: <one-sentence rationale>\n"
     "- How:\n"
     "    <suggested code, matching project style>\n\n"
-    "Focus on real things you can see: missing docstrings, bare excepts, "
-    "long functions, duplicate logic, unclear names, missing type hints, "
-    "potential crashes, security issues, dead code, better library choices. "
     "Never say 'I need more information' - use whatever code was retrieved."
 )
 
 THINKING_ADDENDUM = (
     "\n\nTHINKING MODE IS ON. Before answering:\n"
-    "1. Analyze the overall architecture implied by the retrieved code.\n"
+    "1. Analyze the overall architecture implied by the code.\n"
     "2. Identify dependencies, patterns, and conventions.\n"
     "3. Consider edge cases and best practices.\n"
     "4. Give a structured, thorough answer with sections.\n"
@@ -95,12 +122,11 @@ THINKING_ADDENDUM = (
 
 FEATURE_ADDENDUM = (
     "\n\nFEATURE-ADDITION MODE.\n"
-    "The user wants to ADD or IMPLEMENT something new. Your job:\n"
     "1. Identify the best place to add it (specific file + line).\n"
     "2. Write the exact code (in the project's style).\n"
-    "3. Explain how to integrate it (imports, calls, config).\n"
+    "3. Explain integration (imports, calls, config).\n"
     "4. Show a short example.\n"
-    "Format with sections: ### Where to add - ### Code - ### Integration"
+    "Format: ### Where to add - ### Code - ### Integration"
 )
 
 
@@ -113,23 +139,32 @@ ADD_KEYWORDS = (
     "integrate", "extend",
 )
 
+ERROR_KEYWORDS = (
+    "error", "errors", "bug", "bugs", "issue", "issues", "risk", "risks",
+    "security", "vulnerab", "crash", "crashes", "exception",
+    "wrong", "incorrect", "broken", "fail", "failure",
+    "syntax error", "logical error", "runtime error",
+    "audit", "review for", "find problems", "what is wrong",
+    "what's wrong", "fix", "smell", "smells", "auditing",
+)
+
 IMPROVE_KEYWORDS = (
     "improve", "improvement", "enhance", "enhancement", "refactor",
     "optimi", "suggestion", "suggest", "tips", "clean up", "cleanup",
-    "review", "what can be done", "what can i do", "make it better",
+    "what can be done", "what can i do", "make it better", "better",
 )
 
 
 def detect_intent(question: str) -> str:
     q = question.lower().strip()
+    if any(k in q for k in ERROR_KEYWORDS):
+        return "error"
     if any(k in q for k in IMPROVE_KEYWORDS):
         return "improve"
     if any(k in q for k in ADD_KEYWORDS):
         return "add"
     if q.startswith(("what", "why", "explain", "how does", "how is", "describe")):
         return "explain"
-    if "fix" in q or "bug" in q or "error" in q:
-        return "fix"
     return "search"
 
 
@@ -177,6 +212,8 @@ def answer_question(question: str, hits: list, style: str,
     intent = detect_intent(question)
 
     system = BASE_SYSTEM.format(style=style)
+    if intent == "error":
+        system += ERROR_AUDIT_ADDENDUM
     if intent == "improve":
         system += IMPROVEMENT_ADDENDUM
     if intent == "add":
@@ -194,25 +231,29 @@ def answer_question(question: str, hits: list, style: str,
         )
 
     user_prompt = (
-        "Student question: " + question + "\n\n"
+        "User question: " + question + "\n\n"
         "Detected intent: " + intent + "\n\n"
-        "Relevant context retrieved from their project:\n" + context
+        "Code from their project:\n" + context
         + history_block + "\n\n"
-        "Answer using ONLY this project's code and docs as evidence. "
-        "Cite file + line (or page). If the question is not about this "
-        "project or programming, apply the DOMAIN RESTRICTION."
+        "Answer using the provided code as evidence. Cite file + line. "
+        "For 'error' intent, follow the ERROR/SECURITY AUDIT format. "
+        "Only apply the domain restriction if the question is COMPLETELY "
+        "unrelated to programming or their code."
     )
 
     return _chat(
         system, user_prompt,
         temperature=0.3 if thinking else 0.2,
-        max_tokens=2500 if thinking else 1600,
+        max_tokens=2500 if thinking else 2000,
     )
 
 
 def deep_analysis(question: str, hits: list, style: str, all_items: list) -> str:
+    intent = detect_intent(question)
     system = BASE_SYSTEM.format(style=style) + THINKING_ADDENDUM
-    if detect_intent(question) == "improve":
+    if intent == "error":
+        system += ERROR_AUDIT_ADDENDUM
+    if intent == "improve":
         system += IMPROVEMENT_ADDENDUM
 
     file_tree = sorted(set(i["file"] for i in all_items))
@@ -225,15 +266,14 @@ def deep_analysis(question: str, hits: list, style: str, all_items: list) -> str
     user = (
         "Deep analysis request: " + question + "\n\n"
         "Project structure:\n" + summary + "\n\n"
-        "Retrieved relevant code:\n" + context + "\n\n"
+        "Retrieved code:\n" + context + "\n\n"
         "Provide a thorough analysis with sections:\n"
         "### Overview\n"
         "### Architecture & Patterns\n"
-        "### Concrete Improvements (with file + line + code)\n"
-        "### Risks\n"
+        "### Errors & Security Issues (with severity, file, line, fix)\n"
+        "### Improvements\n"
         "### Recommendations\n"
-        "Cite files and line numbers. If the request is not about this "
-        "project or programming, apply the DOMAIN RESTRICTION."
+        "Cite files and line numbers."
     )
     return _chat(system, user, temperature=0.35, max_tokens=3000)
 
