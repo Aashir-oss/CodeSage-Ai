@@ -19,9 +19,13 @@ def hero():
     st.markdown(
         """
         <div class="cs-hero">
-            <h1>🧠 CodeSage</h1>
-            <p>Upload your Python project + docs. Ask anything. Get AI answers
-            grounded in <em>your</em> code, with file + line citations.</p>
+            <div class="cs-hero-badge">
+                <span class="cs-hero-emoji">🧠</span>
+                <h1 class="cs-hero-title">CodeSage</h1>
+            </div>
+            <p class="cs-hero-sub">Upload your Python project. Ask anything.
+            Get AI answers grounded in <em>your</em> code — with file + line
+            citations.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -311,75 +315,84 @@ def render_sources(hits: list):
 
 def _smart_retrieve(prompt: str, user_id: str, intent: str, project: dict = None) -> list:
     """
-    Retrieve relevant context. Falls back to ALL indexed items when:
-      - project is small (<=15 items), OR
-      - retrieval returns fewer than 3 hits.
-
-    This guarantees the LLM always sees code from small pasted snippets.
+    Retrieve context. For audit / error / security / improvement queries,
+    pull the ENTIRE project (up to a safe cap) so nothing is missed.
     """
     from codesage import rag
 
-    # ---- Baseline retrieval ----
-    if intent in ("improve", "error", "fix"):
-        hits = rag.retrieve(prompt, user_id, top_k=8)
-        hits += rag.retrieve(
-            "functions with exceptions error handling security risks "
-            "hardcoded values weak hashing injection division by zero "
-            "unused imports bare except missing docstrings",
-            user_id, top_k=8,
-        )
-        hits += rag.retrieve(
-            "main entry point class definition long function helper "
-            "utility validate read file command run",
-            user_id, top_k=6,
-        )
-    else:
-        hits = rag.retrieve(prompt, user_id, top_k=6)
+    # ---- 1. Broad semantic retrieval ----
+    hits = rag.retrieve(prompt, user_id, top_k=10)
 
-    # ---- De-duplicate ----
+    # ---- 2. For audit-style intents, seed with keywords covering every issue type ----
+    if intent in ("error", "improve", "fix"):
+        seeded_queries = [
+            "hardcoded secrets API keys passwords tokens credentials",
+            "SQL injection command injection eval exec pickle yaml",
+            "weak hashing MD5 SHA1 random os.system subprocess shell",
+            "division by zero empty list None crash index error",
+            "bare except mutable default infinite loop unused import",
+            "missing docstring type hints naming convention magic number",
+            "read file open close context manager connection leak",
+        ]
+        for q in seeded_queries:
+            hits += rag.retrieve(q, user_id, top_k=6)
+
+    # ---- 3. De-duplicate ----
     seen, unique = set(), []
     for h in hits:
-        key = (h["file"], h["name"])
+        key = (h["file"], h["name"], h.get("line_start", 0))
         if key in seen:
             continue
         seen.add(key)
         unique.append(h)
 
-    # ---- FALLBACK: pull everything if the corpus is small or retrieval was weak ----
-    all_items = rag.list_all(user_id)
-    total_items = len(all_items)
-
-    # If the project has <=15 code chunks OR we got <3 hits → dump everything
-    if total_items > 0 and (total_items <= 15 or len(unique) < 3):
-        # Convert list_all output into retrieval-like dicts
+    # ---- 4. For audit intents, ALWAYS add every item in the project ----
+    if intent in ("error", "improve", "fix"):
+        all_items = rag.list_all(user_id)
         for item in all_items:
-            key = (item["file"], item["name"])
+            key = (item["file"], item["name"], item.get("line_start", 0))
             if key in seen:
                 continue
             seen.add(key)
+            text = item.get("text", "")
             unique.append({
                 "kind": "code",
                 "type": item.get("type", "function"),
                 "name": item.get("name", ""),
                 "file": item.get("file", ""),
                 "line_start": item.get("line_start", 0),
-                "line_end": item.get("line_start", 0) + item.get("text", "").count("\n"),
-                "text": item.get("text", ""),
+                "line_end": item.get("line_start", 0) + text.count("\n"),
+                "text": text,
                 "docstring": "",
                 "score": None,
             })
+    else:
+        # For non-audit queries, still fall back to full dump if retrieval was weak
+        all_items = rag.list_all(user_id)
+        if len(all_items) <= 15 or len(unique) < 3:
+            for item in all_items:
+                key = (item["file"], item["name"], item.get("line_start", 0))
+                if key in seen:
+                    continue
+                seen.add(key)
+                text = item.get("text", "")
+                unique.append({
+                    "kind": "code",
+                    "type": item.get("type", "function"),
+                    "name": item.get("name", ""),
+                    "file": item.get("file", ""),
+                    "line_start": item.get("line_start", 0),
+                    "line_end": item.get("line_start", 0) + text.count("\n"),
+                    "text": text,
+                    "docstring": "",
+                    "score": None,
+                })
 
-    # ---- Diversity: max 3 chunks per file, cap total at 12 ----
-    files_seen, diversified = {}, []
-    for h in unique:
-        files_seen.setdefault(h["file"], 0)
-        if files_seen[h["file"]] < 3:
-            diversified.append(h)
-            files_seen[h["file"]] += 1
-        if len(diversified) >= 12:
-            break
+    # ---- 5. Sort by line number so the LLM sees the file in order ----
+    unique.sort(key=lambda h: (h["file"], h.get("line_start", 0)))
 
-    return diversified if diversified else unique
+    # ---- 6. Cap total at 25 to stay under token limits ----
+    return unique[:25]
 
 def tab_chat(user_id: str, project: dict):
     """Chat-first UI. Code + history are session-scoped."""
@@ -452,3 +465,18 @@ def tab_chat(user_id: str, project: dict):
         })
 
         st.rerun()
+
+        def app_header(username: str = "guest"):()
+    """Centered animated header shown on every page."""
+    st.markdown(
+        f"""
+        <div class="cs-header">
+            <div class="cs-header-inner">
+                <span class="cs-header-logo">🧠</span>
+                <span class="cs-header-title">CodeSage</span>
+                <span class="cs-header-badge">AI Code Tutor</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )

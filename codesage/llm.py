@@ -93,31 +93,60 @@ BASE_SYSTEM = (
 
     "Project style: {style}"
 )
-
 ERROR_AUDIT_ADDENDUM = (
     "\n\n=============== FULL ERROR & SECURITY AUDIT ===============\n"
-    "Identify EVERY issue visible in the retrieved code:\n\n"
-    "SECURITY: hardcoded API keys/passwords/tokens, SQL injection, "
-    "command injection, eval/exec, pickle.loads, yaml.load, weak hashing "
-    "(MD5/SHA1), weak randomness, path traversal, insecure TLS\n"
-    "LOGICAL: division by zero, empty-list handling, off-by-one, missing "
-    "None checks, missing returns, mutable defaults, unreachable code\n"
-    "SYNTAX/RUNTIME: bare excepts, undefined names, wrong exception types\n"
-    "STYLE: PEP 8, unclear names, magic numbers, missing docstrings/type "
-    "hints, dead code, long functions, too many args, unused imports\n\n"
-    "OUTPUT (severity first):\n"
+    "The ENTIRE file was retrieved below - read it end to end before "
+    "answering. Check EVERY line. Do NOT stop early.\n\n"
+
+    "SCAN FOR (list each finding you can see):\n\n"
+
+    "SECURITY (highest priority - start these with ⚠️ URGENT:):\n"
+    "  - Hardcoded API keys (sk-, ghp_, AKIA, etc.), DB passwords, tokens\n"
+    "  - SQL injection: string concatenation or f-strings in queries\n"
+    "  - Command injection: os.system, subprocess with shell=True\n"
+    "  - eval() / exec() on untrusted input\n"
+    "  - pickle.loads / yaml.load on untrusted data\n"
+    "  - Weak hashing (MD5, SHA1) for passwords\n"
+    "  - Weak randomness (random module for tokens/secrets)\n"
+    "  - Path traversal, insecure tempfile, disabled TLS verification\n\n"
+
+    "LOGICAL:\n"
+    "  - Division by zero, empty list indexing, off-by-one\n"
+    "  - Missing None checks, missing returns on some branches\n"
+    "  - Mutable default arguments (def f(items=[]))\n"
+    "  - Infinite loops (while with no decrement/break)\n"
+    "  - Unreachable code, wrong loop bounds\n\n"
+
+    "SYNTAX / RUNTIME:\n"
+    "  - Bare except: clauses, undefined names, wrong exception types\n"
+    "  - Type mismatches, imports inside functions when they belong at top\n\n"
+
+    "STYLE / NAMING:\n"
+    "  - PEP 8 violations, non-snake_case functions, non-PascalCase classes\n"
+    "  - Magic numbers, missing docstrings, missing type hints\n"
+    "  - Dead code (unused functions, unused variables, unused imports)\n"
+    "  - Functions longer than ~30 lines or with >5 args\n\n"
+
+    "RESOURCE LEAKS:\n"
+    "  - open() without 'with', unclosed DB connections\n\n"
+
+    "OUTPUT - order by severity (critical first). Every finding uses:\n\n"
     "### <Short title>\n"
     "- **Severity**: critical | high | medium | low\n"
-    "- **Type**: security | logical | syntax | style | naming\n"
+    "- **Type**: security | logical | syntax | style | naming | resource\n"
     "- **Where**: <file> - line <number>\n"
     "- **What**: <one sentence>\n"
     "- **Why it matters**: <one sentence>\n"
     "- **Fix**:\n"
     "    <short corrected snippet>\n\n"
-    "CRITICAL findings start with '⚠️ URGENT: '. Hardcoded keys/passwords "
-    "must instruct the user to move them to env vars/secrets IMMEDIATELY."
-)
 
+    "RULES:\n"
+    "- Scan the ENTIRE file top to bottom. If the file has 20+ issues, list "
+    "all critical and high issues, then summarize the rest as bullets.\n"
+    "- Never say 'no issues found' unless you genuinely scanned every line.\n"
+    "- Never invent functions not in the retrieved code.\n"
+    "- Hardcoded secrets are ALWAYS critical, no exceptions."
+)
 IMPROVEMENT_ADDENDUM = (
     "\n\n=============== IMPROVEMENT MODE ===============\n"
     "Give 3-6 concrete improvements:\n\n"
