@@ -23,14 +23,13 @@ def hero():
                 <span class="cs-hero-emoji">🧠</span>
                 <h1 class="cs-hero-title">CodeSage</h1>
             </div>
-            <p class="cs-hero-sub">Upload your Python project. Ask anything.
+            <p class="cs-hero-sub">Upload your project in any language. Ask anything.
             Get AI answers grounded in <em>your</em> code — with file + line
             citations.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
-
 
 def app_header(username: str = "guest"):
     """Centered animated header shown on every page."""
@@ -156,9 +155,9 @@ def issue_card(issue: dict):
 def welcome_screen():
     hero()
     st.info(
-        "👈 Upload a `.zip` **or** drag in individual files "
-        "(`.py`, `.pdf`, `.docx`, `.txt`, `.md`, `.png`, `.jpg`) "
-        "to get started."
+        "👈 Upload a `.zip` **or** drag in individual files — "
+        "`.py`, `.java`, `.cpp`, `.cs`, `.js`, `.html`, and more. "
+        "Also supports `.pdf`, `.docx`, `.txt`, `.md`, and images."
     )
 
 
