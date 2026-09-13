@@ -44,9 +44,28 @@ for k, v in DEFAULTS.items():
 
 
 SUPPORTED_EXTS = {
+    # Archives
     ".zip",
+    # Python
     ".py",
+    # JavaScript / TypeScript
+    ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+    # JVM
+    ".java", ".kt", ".kts", ".scala",
+    # .NET
+    ".cs",
+    # C family
+    ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hxx",
+    # Other languages
+    ".go", ".rs", ".rb", ".php", ".swift",
+    # Web
+    ".html", ".htm", ".css", ".scss", ".sass", ".less",
+    ".vue", ".svelte",
+    # Scripts / data
+    ".sql", ".sh", ".bash", ".ps1",
+    # Documents
     ".pdf", ".docx", ".txt", ".md", ".rst",
+    # Images
     ".png", ".jpg", ".jpeg", ".bmp", ".gif",
 }
 
@@ -192,13 +211,40 @@ with st.sidebar:
     if input_mode == "📁 Upload files":
         uploaded_files = st.file_uploader(
             "📁 Upload project or files",
-            type=["zip", "py", "pdf", "docx", "txt", "md",
-                  "png", "jpg", "jpeg", "bmp", "gif"],
+            type=[
+                # Archives
+                "zip",
+                # Python
+                "py",
+                # JavaScript / TypeScript
+                "js", "jsx", "ts", "tsx", "mjs", "cjs",
+                # JVM
+                "java", "kt", "kts", "scala",
+                # .NET
+                "cs",
+                # C family
+                "c", "cpp", "cc", "cxx", "h", "hpp", "hxx",
+                # Systems / other
+                "go", "rs", "rb", "php", "swift",
+                # Web
+                "html", "htm", "css", "scss", "sass", "less",
+                "vue", "svelte",
+                # Data / scripts
+                "sql", "sh", "bash", "ps1",
+                # Docs
+                "pdf", "docx", "txt", "md", "rst",
+                # Images
+                "png", "jpg", "jpeg", "bmp", "gif",
+            ],
             accept_multiple_files=True,
             key="uploader",
-            help="ZIP the whole project, or upload individual files.",
+            help=(
+                "Upload a ZIP of your project, or drop individual files. "
+                "Supported: Python, JavaScript, TypeScript, Java, C#, C, C++, "
+                "Go, Rust, Ruby, PHP, Swift, Kotlin, Scala, SQL, Shell, "
+                "HTML, CSS, Vue, Svelte, plus PDF, DOCX, TXT, MD, and images."
+            ),
         )
-
         if uploaded_files:
             bad = [f.name for f in uploaded_files
                    if Path(f.name).suffix.lower() not in SUPPORTED_EXTS]
@@ -206,24 +252,30 @@ with st.sidebar:
                 st.error(
                     "⚠️ **Unsupported file format(s):**\n\n"
                     + "\n".join(f"- `{n}`" for n in bad)
-                    + "\n\n**Allowed formats:**\n\n"
-                    "`.zip` · `.py` · `.pdf` · `.docx` · `.txt` · `.md` · "
-                    "`.png` · `.jpg` · `.jpeg`"
+                    + "\n\n**Allowed code files:** `.py`, `.js`, `.ts`, "
+                    "`.jsx`, `.tsx`, `.java`, `.cs`, `.c`, `.cpp`, `.h`, "
+                    "`.go`, `.rs`, `.rb`, `.php`, `.swift`, `.kt`, `.scala`, "
+                    "`.html`, `.css`, `.vue`, `.svelte`, `.sql`, `.sh`\n\n"
+                    "**Documents:** `.pdf`, `.docx`, `.txt`, `.md`\n\n"
+                    "**Images:** `.png`, `.jpg`, `.jpeg`"
                 )
             else:
                 signature = "|".join(sorted(f.name for f in uploaded_files))
-                if st.session_state.get("_last_upload") != signature:
-                    st.session_state["_last_upload"] = signature
-                    st.session_state["_last_paste"] = None
-                    run_pipeline_from_files(uploaded_files, user_id)
-
-    # ---------- MODE 2: Paste code ----------
+            if st.session_state.get("_last_upload") != signature:
+                st.session_state["_last_upload"] = signature
+                st.session_state["_last_paste"] = None
+                run_pipeline_from_files(uploaded_files, user_id)
+      # ---------- MODE 2: Paste code ----------
     else:
         pasted = st.text_area(
-            "✍️ Paste your Python code",
+            "✍️ Paste your code",
             height=280,
             placeholder=(
-                "# Paste your Python code here\n"
+                "# Paste code in any supported language:\n"
+                "# Python, JavaScript, TypeScript, Java, C#, C, C++, Go,\n"
+                "# Rust, Ruby, PHP, Swift, Kotlin, SQL, HTML, CSS, and more\n"
+                "\n"
+                "# Example (any language works):\n"
                 "def hello():\n"
                 "    print('Hi')\n"
             ),
@@ -262,6 +314,7 @@ with st.sidebar:
             st.session_state.explain_result = None
             st.session_state.issue_explanation = None
             st.rerun()
+
     st.markdown("---")
     st.markdown(f"👤 **{username}**")
     if st.button("⏻ Logout", use_container_width=True):
