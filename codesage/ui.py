@@ -85,25 +85,6 @@ def render_style(style: dict):
     )
 
 
-def download_report(project: dict):
-    report = {
-        "generated_at": datetime.utcnow().isoformat(),
-        "stats": {
-            "files": project["file_count"], "docs": project["doc_count"],
-            "images": project["image_count"], "functions": project["func_count"],
-            "classes": project["class_count"], "loc": project["total_loc"],
-            "indexed": project["indexed_count"],
-        },
-        "style": project["style"], "issues": project["issues"],
-    }
-    st.download_button(
-        "📥 Download Report (JSON)",
-        data=json.dumps(report, indent=2),
-        file_name=f"codesage_report_{datetime.now():%Y%m%d_%H%M%S}.json",
-        mime="application/json",
-        use_container_width=True,
-    )
-
 
 # ==============================================================
 # CARDS

@@ -256,26 +256,12 @@ with st.sidebar:
         ui.render_metrics(project)
 
         st.markdown("---")
-        ui.render_style(project["style"])
-
-        st.markdown("---")
         st.markdown("##### ⚙️ Actions")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            if st.button("🗑️ Clear chat", use_container_width=True):
-                st.session_state.chat_history = []
-                st.session_state.explain_result = None
-                st.session_state.issue_explanation = None
-                st.rerun()
-        with col_b:
-            if st.button("♻️ Reset all", use_container_width=True):
-                for k in list(st.session_state.keys()):
-                    if k not in ("user_id", "username"):
-                        st.session_state.pop(k, None)
-                st.rerun()
-
-        ui.download_report(project)
-
+        if st.button("🗑️ Clear chat", use_container_width=True):
+            st.session_state.chat_history = []
+            st.session_state.explain_result = None
+            st.session_state.issue_explanation = None
+            st.rerun()
     st.markdown("---")
     st.markdown(f"👤 **{username}**")
     if st.button("⏻ Logout", use_container_width=True):
