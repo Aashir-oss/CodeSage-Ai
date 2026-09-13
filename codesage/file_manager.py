@@ -9,7 +9,21 @@ IGNORE_DIRS = {
     "build", "dist", ".mypy_cache", ".ruff_cache",
 }
 
-CODE_EXTS  = {".py"}
+CODE_EXTS  = {".py"".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",           # JavaScript / TypeScript
+    ".java",                                                # Java
+    ".cs",                                                  # C#
+    ".cpp", ".cc", ".cxx", ".hpp", ".h", ".hxx",            # C++
+    ".c",                                                   # C
+    ".go",                                                  # Go
+    ".rs",                                                  # Rust
+    ".rb",                                                  # Ruby
+    ".php",                                                 # PHP
+    ".swift", ".kt", ".kts",                                # Swift / Kotlin
+    ".scala",                                               # Scala
+    ".html", ".htm", ".css", ".scss", ".sass", ".less",     # Web
+    ".vue", ".svelte",                                      # Frameworks
+    ".sql",                                                 # SQL
+    ".sh", ".bash", ".ps1",  }
 DOC_EXTS   = {".pdf", ".docx", ".txt", ".md", ".rst"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
 

@@ -1,11 +1,13 @@
-"""Static analysis via Ruff and Bandit."""
+"""Static analysis. Ruff + Bandit for Python; LLM handles other languages."""
 import subprocess
 import json
 import sys
 from pathlib import Path
 
+from codesage.file_manager import CODE_EXTS
 
-def run_ruff(project_root: Path) -> list[dict]:
+
+def run_ruff(project_root: Path) -> list:
     try:
         r = subprocess.run(
             [sys.executable, "-m", "ruff", "check",
@@ -25,7 +27,7 @@ def run_ruff(project_root: Path) -> list[dict]:
     } for item in raw]
 
 
-def run_bandit(project_root: Path) -> list[dict]:
+def run_bandit(project_root: Path) -> list:
     try:
         r = subprocess.run(
             [sys.executable, "-m", "bandit",
@@ -45,8 +47,17 @@ def run_bandit(project_root: Path) -> list[dict]:
     } for item in raw.get("results", [])]
 
 
-def analyze_project(project_root: Path) -> list[dict]:
-    findings = run_ruff(project_root) + run_bandit(project_root)
+def analyze_project(project_root: Path) -> list:
+    """Run Python linters only if Python files exist. Other languages are
+    reviewed by the LLM through the audit prompt."""
+    findings = []
+    py_files = [p for p in project_root.rglob("*.py")
+                if not any(part.startswith(".") for part in p.parts)]
+
+    if py_files:
+        findings = run_ruff(project_root) + run_bandit(project_root)
+
+    # Deduplicate
     seen, unique = set(), []
     for f in findings:
         key = (f["file"], f["line"], f["message"])
