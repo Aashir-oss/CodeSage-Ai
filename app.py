@@ -28,6 +28,8 @@ ui.inject_css()
 
 user_id  = st.session_state.get("user_id", "guest")
 username = st.session_state.get("username", "guest")
+# ---- Login page URL (edit this) 
+LOGIN_URL = "https://code-rag-assistant.vercel.app"
 
 DEFAULTS = {
     "project": None,
@@ -314,7 +316,11 @@ with st.sidebar:
     st.markdown(f"👤 **{username}**")
     if st.button("⏻ Logout", use_container_width=True):
         st.session_state.clear()
-        st.rerun()
+        st.markdown(
+            f'<meta http-equiv="refresh" content="0; url={LOGIN_URL}">',
+            unsafe_allow_html=True,
+        )
+        st.stop()
 
 
 # ==============================================================
