@@ -1,15 +1,15 @@
-"""Multi-language parser using regex heuristics."""
+"""Multi-language parser. AST for Python; regex for everything else.
+Files with no parseable functions are indexed as one whole-file chunk."""
 import ast
 import re
 from pathlib import Path
 
-from codesage.file_manager import language_for, EXT_TO_LANG
+from codesage.file_manager import EXT_TO_LANG, language_for
 
 
-# ------------------------------------------------------------------
-# Regex patterns for common function declarations per language
-# Each pattern captures the function name in group 1
-# ------------------------------------------------------------------
+# ==============================================================
+# REGEX PATTERNS PER LANGUAGE
+# ==============================================================
 PATTERNS = {
     "python": [
         re.compile(r"^\s*(?:async\s+)?def\s+(\w+)\s*\("),
@@ -76,7 +76,8 @@ PATTERNS = {
         re.compile(r"^\s*(?:class|object|trait)\s+(\w+)"),
     ],
     "sql": [
-        re.compile(r"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE|TABLE|VIEW)\s+(\w+)", re.IGNORECASE),
+        re.compile(r"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE|TABLE|VIEW)\s+(\w+)",
+                   re.IGNORECASE),
     ],
     "bash": [
         re.compile(r"^\s*(?:function\s+)?(\w+)\s*\(\)\s*\{"),
@@ -84,56 +85,21 @@ PATTERNS = {
     "powershell": [
         re.compile(r"^\s*function\s+(\w+)"),
     ],
-    "html": [
-        # Not much to parse; skip
-    ],
+    "html": [],
+    "xml": [],
     "css": [
-        # Not code functions; skip
+        re.compile(r"^\s*@mixin\s+(\w+)"),
     ],
-    "vue": [
-        # treated as javascript mostly
-    ],
-    "svelte": [
-        # treated as javascript mostly
-    ],
-    "scss": [re.compile(r"^\s*@mixin\s+(\w+)")],
-    "sass": [],
-    "less": [],
 }
 
 
-def _extract_blocks(source: str, patterns: list) -> list:
-    """Find function/class blocks using regex + line-based heuristic."""
-    lines = source.splitlines()
-    results = []
-    n = len(lines)
-
-    for i, line in enumerate(lines):
-        for pat in patterns:
-            m = pat.match(line)
-            if not m:
-                continue
-            name = m.group(1)
-            start = i
-
-            # Find the end of the block by tracking brace / indent balance
-            end = _find_block_end(lines, start)
-            text = "\n".join(lines[start:end + 1])
-            results.append({
-                "name": name,
-                "line_start": start + 1,
-                "line_end": end + 1,
-                "text": text,
-            })
-            break  # don't match twice on the same line
-
-    return results
-
-
+# ==============================================================
+# BLOCK EXTRACTION
+# ==============================================================
 def _find_block_end(lines: list, start: int) -> int:
-    """Find last line of a code block starting at `start`."""
     first = lines[start]
-    # Python-style: indentation-based block
+
+    # Python-style (indentation-based)
     if first.rstrip().endswith(":"):
         base_indent = len(first) - len(first.lstrip())
         i = start + 1
@@ -148,7 +114,7 @@ def _find_block_end(lines: list, start: int) -> int:
             i += 1
         return len(lines) - 1
 
-    # Brace-based block
+    # Brace-based
     if "{" in first:
         depth = 0
         i = start
@@ -159,53 +125,34 @@ def _find_block_end(lines: list, start: int) -> int:
             i += 1
         return len(lines) - 1
 
-    # Arrow function / expression — single line
     return start
 
 
-def extract_items(file_path: Path, project_root: Path) -> list:
-    ext = file_path.suffix.lower()
-    lang = EXT_TO_LANG.get(ext)
-    if not lang:
-        return []
-
-    # Python: prefer real AST for accuracy
-    if lang == "python":
-        return _extract_python(file_path, project_root)
-
-    # Everything else: regex-based
-    try:
-        source = file_path.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        return []
-
-    patterns = PATTERNS.get(lang, [])
-    if not patterns:
-        return []
-
-    try:
-        rel_path = str(file_path.relative_to(project_root))
-    except Exception:
-        rel_path = file_path.name
-
-    items = []
-    for block in _extract_blocks(source, patterns):
-        items.append({
-            "kind": "code",
-            "type": "function",
-            "name": block["name"],
-            "file": rel_path,
-            "line_start": block["line_start"],
-            "line_end": block["line_end"],
-            "text": block["text"],
-            "docstring": "",
-            "language": lang,
-        })
-    return items
+def _extract_blocks(source: str, patterns: list) -> list:
+    lines = source.splitlines()
+    results = []
+    for i, line in enumerate(lines):
+        for pat in patterns:
+            m = pat.match(line)
+            if not m:
+                continue
+            name = m.group(1)
+            start = i
+            end = _find_block_end(lines, start)
+            results.append({
+                "name": name,
+                "line_start": start + 1,
+                "line_end": end + 1,
+                "text": "\n".join(lines[start:end + 1]),
+            })
+            break
+    return results
 
 
+# ==============================================================
+# PYTHON AST EXTRACTION
+# ==============================================================
 def _extract_python(file_path: Path, project_root: Path) -> list:
-    """Python AST-based extraction (kept for accuracy)."""
     try:
         source = file_path.read_text(encoding="utf-8", errors="ignore")
         tree = ast.parse(source)
@@ -246,10 +193,86 @@ def _extract_python(file_path: Path, project_root: Path) -> list:
     return results
 
 
+# ==============================================================
+# PUBLIC EXTRACTION
+# ==============================================================
+def extract_items(file_path: Path, project_root: Path) -> list:
+    ext = file_path.suffix.lower()
+    lang = EXT_TO_LANG.get(ext)
+    if not lang:
+        return []
+
+    if lang == "python":
+        return _extract_python(file_path, project_root)
+
+    try:
+        source = file_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return []
+
+    patterns = PATTERNS.get(lang, [])
+    if not patterns:
+        return []
+
+    try:
+        rel_path = str(file_path.relative_to(project_root))
+    except Exception:
+        rel_path = file_path.name
+
+    items = []
+    for block in _extract_blocks(source, patterns):
+        items.append({
+            "kind": "code",
+            "type": "function",
+            "name": block["name"],
+            "file": rel_path,
+            "line_start": block["line_start"],
+            "line_end": block["line_end"],
+            "text": block["text"],
+            "docstring": "",
+            "language": lang,
+        })
+    return items
+
+
+def extract_items_with_fallback(file_path: Path, project_root: Path) -> list:
+    """Extract functions. If none found, index the whole file as one chunk."""
+    items = extract_items(file_path, project_root)
+    if items:
+        return items
+
+    try:
+        source = file_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return []
+
+    if not source.strip():
+        return []
+
+    lang = EXT_TO_LANG.get(file_path.suffix.lower(), "unknown")
+    try:
+        rel_path = str(file_path.relative_to(project_root))
+    except Exception:
+        rel_path = file_path.name
+
+    lines = source.splitlines()
+    return [{
+        "kind": "code",
+        "type": "file",
+        "name": file_path.name,
+        "file": rel_path,
+        "line_start": 1,
+        "line_end": len(lines),
+        "text": source,
+        "docstring": "",
+        "language": lang,
+    }]
+
+
 def parse_project(code_files: list, project_root: Path) -> list:
     items = []
     for f in code_files:
-        items.extend(extract_items(f, project_root))
+        items.extend(extract_items_with_fallback(f, project_root))
     return items
 
 

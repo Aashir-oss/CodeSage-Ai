@@ -29,7 +29,6 @@ ui.inject_css()
 user_id  = st.session_state.get("user_id", "guest")
 username = st.session_state.get("username", "guest")
 
-#ui.app_header(username)
 DEFAULTS = {
     "project": None,
     "chat_history": [],
@@ -43,35 +42,12 @@ for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
 
 
-SUPPORTED_EXTS = {
-    # Archives
-    ".zip",
-    # Python
-    ".py",
-    # JavaScript / TypeScript
-    ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
-    # JVM
-    ".java", ".kt", ".kts", ".scala",
-    # .NET
-    ".cs",
-    # C family
-    ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hxx",
-    # Other languages
-    ".go", ".rs", ".rb", ".php", ".swift",
-    # Web
-    ".html", ".htm", ".css", ".scss", ".sass", ".less",
-    ".vue", ".svelte",
-    # Scripts / data
-    ".sql", ".sh", ".bash", ".ps1",
-    # Documents
-    ".pdf", ".docx", ".txt", ".md", ".rst",
-    # Images
-    ".png", ".jpg", ".jpeg", ".bmp", ".gif",
-}
+SUPPORTED_EXTS = set(file_manager.CODE_EXTS) | \
+                 set(file_manager.DOC_EXTS) | \
+                 set(file_manager.IMAGE_EXTS) | {".zip"}
 
 
 def _reset_session_for_new_code():
-    """Clear ALL project-specific state when new code is loaded."""
     st.session_state.project = None
     st.session_state.chat_history = []
     st.session_state.explain_result = None
@@ -83,19 +59,41 @@ def _reset_session_for_new_code():
 # ==============================================================
 def _run_pipeline(root: Path, user_id: str, status, session_id: str):
     all_files = file_manager.find_all_supported_files(root)
-    code_files = all_files["code"]
-    doc_files  = all_files["docs"]
-    img_files  = all_files["images"]
+    code_files  = all_files["code"]
+    doc_files   = all_files["docs"]
+    img_files   = all_files["images"]
+    unsupported = all_files.get("unsupported", [])
+
+    if unsupported:
+        names = [p.name for p in unsupported[:5]]
+        st.warning(
+            f"⚠️ Skipped {len(unsupported)} unsupported file(s): "
+            + ", ".join(f"`{n}`" for n in names)
+            + (f" and {len(unsupported) - 5} more" if len(unsupported) > 5 else "")
+        )
 
     if not code_files and not doc_files and not img_files:
         status.update(label="❌ No supported files found", state="error")
         return
 
-    st.write(f"   ✓ {len(code_files)} code · {len(doc_files)} docs · {len(img_files)} images")
+    st.write(
+        f"   ✓ {len(code_files)} code · {len(doc_files)} docs · "
+        f"{len(img_files)} images"
+    )
 
-    st.write("🧬 Parsing Python files...")
+    # ---- Language breakdown ----
+    langs = {}
+    for f in code_files:
+        lang = file_manager.language_for(f)
+        langs[lang] = langs.get(lang, 0) + 1
+    if langs:
+        st.write("   🌐 Languages: " + " · ".join(
+            f"{l}×{n}" for l, n in sorted(langs.items())
+        ))
+
+    st.write("🧬 Parsing code files...")
     code_items = parser.parse_project(code_files, root)
-    st.write(f"   ✓ {len(code_items)} functions/classes")
+    st.write(f"   ✓ {len(code_items)} code chunks")
 
     st.write("📚 Loading documents...")
     doc_items = doc_loader.load_all_documents(doc_files, img_files)
@@ -113,7 +111,7 @@ def _run_pipeline(root: Path, user_id: str, status, session_id: str):
     progress.progress(100, text="Indexed ✓")
     st.write(f"   ✓ Indexed **{indexed}** items")
 
-    st.write("🔧 Running Ruff + Bandit...")
+    st.write("🔧 Running static analysis...")
     issues = analyzer.analyze_project(root) if code_files else []
     st.write(f"   ✓ {len(issues)} issues")
 
@@ -138,7 +136,6 @@ def _run_pipeline(root: Path, user_id: str, status, session_id: str):
         "style": style,
         "indexed_count": indexed,
     }
-    # Fresh chat for the new code
     st.session_state.chat_history = []
     st.session_state.explain_result = None
     st.session_state.issue_explanation = None
@@ -183,13 +180,25 @@ def run_pipeline_from_paste(code_text: str, user_id: str):
         shutil.rmtree(paste_dir)
     paste_dir.mkdir(parents=True, exist_ok=True)
 
-    code_file = paste_dir / "pasted_code.py"
+    # ---- Auto-detect the language ----
+    lang = file_manager.detect_language_from_text(code_text)
+
+    if lang == "unknown":
+        st.error(
+            "⚠️ **I cannot detect a supported language in the pasted text.**\n\n"
+            "Please make sure your code is in one of these languages:\n\n"
+            + " · ".join(f"`{x}`" for x in sorted(file_manager.SUPPORTED_LANGUAGES))
+        )
+        return
+
+    ext = file_manager.extension_for_language(lang)
+    code_file = paste_dir / f"pasted_code{ext}"
     code_file.write_text(code_text, encoding="utf-8")
 
     session_id = "paste::" + str(hash(code_text))
 
     with st.status("🚀 Analyzing pasted code...", expanded=True) as status:
-        st.write("💾 Saved pasted code as pasted_code.py")
+        st.write(f"💾 Detected **{lang}** — saved as `pasted_code{ext}`")
         _run_pipeline(paste_dir, user_id, status, session_id)
 
 
@@ -212,39 +221,28 @@ with st.sidebar:
         uploaded_files = st.file_uploader(
             "📁 Upload project or files",
             type=[
-                # Archives
-                "zip",
-                # Python
-                "py",
-                # JavaScript / TypeScript
+                "zip", "py",
                 "js", "jsx", "ts", "tsx", "mjs", "cjs",
-                # JVM
                 "java", "kt", "kts", "scala",
-                # .NET
                 "cs",
-                # C family
                 "c", "cpp", "cc", "cxx", "h", "hpp", "hxx",
-                # Systems / other
                 "go", "rs", "rb", "php", "swift",
-                # Web
-                "html", "htm", "css", "scss", "sass", "less",
+                "html", "htm", "xml", "css", "scss", "sass", "less",
                 "vue", "svelte",
-                # Data / scripts
                 "sql", "sh", "bash", "ps1",
-                # Docs
                 "pdf", "docx", "txt", "md", "rst",
-                # Images
                 "png", "jpg", "jpeg", "bmp", "gif",
             ],
             accept_multiple_files=True,
             key="uploader",
             help=(
-                "Upload a ZIP of your project, or drop individual files. "
-                "Supported: Python, JavaScript, TypeScript, Java, C#, C, C++, "
-                "Go, Rust, Ruby, PHP, Swift, Kotlin, Scala, SQL, Shell, "
-                "HTML, CSS, Vue, Svelte, plus PDF, DOCX, TXT, MD, and images."
+                "Upload a ZIP or individual files. Supported: Python, "
+                "JavaScript, TypeScript, Java, C#, C, C++, Go, Rust, Ruby, "
+                "PHP, Swift, Kotlin, Scala, SQL, Shell, PowerShell, HTML, XML, "
+                "CSS, SCSS, Vue, Svelte — plus PDF, DOCX, TXT, MD, and images."
             ),
         )
+
         if uploaded_files:
             bad = [f.name for f in uploaded_files
                    if Path(f.name).suffix.lower() not in SUPPORTED_EXTS]
@@ -252,20 +250,22 @@ with st.sidebar:
                 st.error(
                     "⚠️ **Unsupported file format(s):**\n\n"
                     + "\n".join(f"- `{n}`" for n in bad)
-                    + "\n\n**Allowed code files:** `.py`, `.js`, `.ts`, "
-                    "`.jsx`, `.tsx`, `.java`, `.cs`, `.c`, `.cpp`, `.h`, "
-                    "`.go`, `.rs`, `.rb`, `.php`, `.swift`, `.kt`, `.scala`, "
-                    "`.html`, `.css`, `.vue`, `.svelte`, `.sql`, `.sh`\n\n"
-                    "**Documents:** `.pdf`, `.docx`, `.txt`, `.md`\n\n"
+                    + "\n\n**Supported code:** `.py`, `.js`, `.ts`, `.jsx`, "
+                    "`.tsx`, `.java`, `.cs`, `.c`, `.cpp`, `.h`, `.go`, "
+                    "`.rs`, `.rb`, `.php`, `.swift`, `.kt`, `.scala`, "
+                    "`.html`, `.xml`, `.css`, `.scss`, `.vue`, `.svelte`, "
+                    "`.sql`, `.sh`, `.ps1`\n\n"
+                    "**Docs:** `.pdf`, `.docx`, `.txt`, `.md`\n\n"
                     "**Images:** `.png`, `.jpg`, `.jpeg`"
                 )
             else:
                 signature = "|".join(sorted(f.name for f in uploaded_files))
-            if st.session_state.get("_last_upload") != signature:
-                st.session_state["_last_upload"] = signature
-                st.session_state["_last_paste"] = None
-                run_pipeline_from_files(uploaded_files, user_id)
-      # ---------- MODE 2: Paste code ----------
+                if st.session_state.get("_last_upload") != signature:
+                    st.session_state["_last_upload"] = signature
+                    st.session_state["_last_paste"] = None
+                    run_pipeline_from_files(uploaded_files, user_id)
+
+    # ---------- MODE 2: Paste code ----------
     else:
         pasted = st.text_area(
             "✍️ Paste your code",
@@ -274,15 +274,10 @@ with st.sidebar:
                 "# Paste code in any supported language:\n"
                 "# Python, JavaScript, TypeScript, Java, C#, C, C++, Go,\n"
                 "# Rust, Ruby, PHP, Swift, Kotlin, SQL, HTML, CSS, and more\n"
-                "\n"
-                "# Example (any language works):\n"
-                "def hello():\n"
-                "    print('Hi')\n"
             ),
             key="paste_area",
         )
 
-        # Clear-chat check: if the paste box is emptied, wipe session
         if not pasted.strip() and st.session_state.get("_last_paste"):
             st.session_state["_last_paste"] = None
             _reset_session_for_new_code()
