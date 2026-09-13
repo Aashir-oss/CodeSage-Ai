@@ -1,4 +1,4 @@
-"""ZIP extraction + individual file handling."""
+"""ZIP extraction + individual file handling (multi-language)."""
 import zipfile
 import shutil
 from pathlib import Path
@@ -7,25 +7,60 @@ IGNORE_DIRS = {
     ".git", "__pycache__", ".venv", "venv", "env",
     ".idea", ".vscode", "node_modules", ".pytest_cache",
     "build", "dist", ".mypy_cache", ".ruff_cache",
+    "bin", "obj", "target", ".next", ".nuxt",
 }
 
-CODE_EXTS  = {".py"".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",           # JavaScript / TypeScript
-    ".java",                                                # Java
-    ".cs",                                                  # C#
-    ".cpp", ".cc", ".cxx", ".hpp", ".h", ".hxx",            # C++
-    ".c",                                                   # C
-    ".go",                                                  # Go
-    ".rs",                                                  # Rust
-    ".rb",                                                  # Ruby
-    ".php",                                                 # PHP
-    ".swift", ".kt", ".kts",                                # Swift / Kotlin
-    ".scala",                                               # Scala
-    ".html", ".htm", ".css", ".scss", ".sass", ".less",     # Web
-    ".vue", ".svelte",                                      # Frameworks
-    ".sql",                                                 # SQL
-    ".sh", ".bash", ".ps1",  }
+# Languages we support for code parsing
+CODE_EXTS = {
+    ".py",
+    ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+    ".java",
+    ".cs",
+    ".cpp", ".cc", ".cxx", ".hpp", ".h", ".hxx",
+    ".c",
+    ".go",
+    ".rs",
+    ".rb",
+    ".php",
+    ".swift", ".kt", ".kts",
+    ".scala",
+    ".html", ".htm", ".css", ".scss", ".sass", ".less",
+    ".vue", ".svelte",
+    ".sql",
+    ".sh", ".bash", ".ps1",
+}
+
 DOC_EXTS   = {".pdf", ".docx", ".txt", ".md", ".rst"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
+
+# Extension → language name (used for prompts and metadata)
+EXT_TO_LANG = {
+    ".py": "python",
+    ".js": "javascript", ".jsx": "javascript",
+    ".ts": "typescript", ".tsx": "typescript",
+    ".mjs": "javascript", ".cjs": "javascript",
+    ".java": "java",
+    ".cs": "csharp",
+    ".cpp": "cpp", ".cc": "cpp", ".cxx": "cpp",
+    ".hpp": "cpp", ".h": "cpp", ".hxx": "cpp",
+    ".c": "c",
+    ".go": "go",
+    ".rs": "rust",
+    ".rb": "ruby",
+    ".php": "php",
+    ".swift": "swift",
+    ".kt": "kotlin", ".kts": "kotlin",
+    ".scala": "scala",
+    ".html": "html", ".htm": "html",
+    ".css": "css", ".scss": "scss", ".sass": "sass", ".less": "less",
+    ".vue": "vue", ".svelte": "svelte",
+    ".sql": "sql",
+    ".sh": "bash", ".bash": "bash", ".ps1": "powershell",
+}
+
+
+def language_for(path: Path) -> str:
+    return EXT_TO_LANG.get(path.suffix.lower(), "unknown")
 
 
 def extract_zip(zip_path: str, dest_dir: str) -> Path:
@@ -42,13 +77,9 @@ def extract_zip(zip_path: str, dest_dir: str) -> Path:
     return dest
 
 
-def find_python_files(project_root: Path) -> list[Path]:
-    py_files = []
-    for path in project_root.rglob("*.py"):
-        if any(part in IGNORE_DIRS for part in path.parts):
-            continue
-        py_files.append(path)
-    return py_files
+def find_python_files(project_root: Path) -> list:
+    """Kept for backward compatibility — returns all code files now."""
+    return find_all_supported_files(project_root)["code"]
 
 
 def find_all_supported_files(project_root: Path) -> dict:
